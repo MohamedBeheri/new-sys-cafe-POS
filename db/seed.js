@@ -29,10 +29,10 @@ export function seed({ verbose = false } = {}) {
     roles.forEach(r => rId[r[0]] = insRole.run(r[0], r[1]).lastInsertRowid);
 
     const insU = db.prepare('INSERT INTO users(full_name,email,password_hash,role_id,pin,is_active,created_at) VALUES(?,?,?,?,?,1,?)');
-    const uManager = insU.run('مدير الكافيه', 'manager@cafe.local', hash('admin123'), rId.admin, '9999', t).lastInsertRowid;
-    const uCashier = insU.run('كاشير الوردية', 'cashier@cafe.local', hash('pass123'), rId.cashier, '1234', t).lastInsertRowid;
-    insU.run('شيف المطبخ', 'kitchen@cafe.local', hash('pass123'), rId.kitchen, '2222', t);
-    insU.run('باريستا البار', 'bar@cafe.local', hash('pass123'), rId.bar, '3333', t);
+    const uManager = insU.run('مدير الكافيه', 'admin@seaside.com', hash('admin123'), rId.admin, '9999', t).lastInsertRowid;
+    const uCashier = insU.run('كاشير الوردية', 'cashier@seaside.com', hash('pass123'), rId.cashier, '1234', t).lastInsertRowid;
+    insU.run('شيف المطبخ', 'kitchen@seaside.com', hash('pass123'), rId.kitchen, '2222', t);
+    insU.run('باريستا البار', 'bar@seaside.com', hash('pass123'), rId.bar, '3333', t);
 
     // ---------- المخازن ----------
     const insW = db.prepare('INSERT INTO warehouses(name_ar,kind,sort_order) VALUES(?,?,?)');
