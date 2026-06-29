@@ -158,20 +158,14 @@ function renderLogin() {
     ${logoMark('login-logo-img')}
     <div class="sub">${t('نظام نقاط البيع وإدارة المخازن')}</div>
     <form id="lf">
-      <div class="field"><label>${t('البريد الإلكتروني')}</label><input id="email" type="email" value="manager@cafe.local" autocomplete="username"></div>
-      <div class="field"><label>${t('كلمة المرور')}</label><input id="pass" type="password" value="admin123" autocomplete="current-password"></div>
+      <div class="field"><label>${t('البريد الإلكتروني')}</label><input id="email" type="email" placeholder="email@example.com" autocomplete="username"></div>
+      <div class="field"><label>${t('كلمة المرور')}</label><input id="pass" type="password" autocomplete="current-password"></div>
       <button class="btn btn-primary btn-block btn-lg" type="submit">${t('دخول')}</button>
       <div class="err" id="le"></div>
     </form>
-    <div class="demo-hint"><b>${t('حسابات تجريبية (اضغط للتعبئة):')}</b><br>
-      <code data-u="manager@cafe.local" data-p="admin123">${L('أدمن', 'Admin')}</code>
-      <code data-u="cashier@cafe.local" data-p="pass123">${t('كاشير')}</code>
-      <code data-u="kitchen@cafe.local" data-p="pass123">${L('مطبخ', 'Kitchen')}</code>
-      <code data-u="bar@cafe.local" data-p="pass123">${L('بار', 'Bar')}</code></div>
   </div></div>`;
   $('#lg-lang').onclick = () => setLang(LANG === 'en' ? 'ar' : 'en');
   $('#lg-theme').onclick = () => setTheme(THEME === 'dark' ? 'light' : 'dark');
-  $$('.demo-hint code').forEach(c => c.onclick = () => { $('#email').value = c.dataset.u; $('#pass').value = c.dataset.p; });
   $('#lf').onsubmit = async (e) => {
     e.preventDefault(); $('#le').textContent = '';
     try {
