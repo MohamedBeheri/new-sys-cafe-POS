@@ -1,7 +1,7 @@
 // ===================================================================
 //  واجهة seaside — POS + مخازن + وصفات + حوكمة (ثنائي اللغة + ثيم)
 // ===================================================================
-const APP_BUILD = '2026-06-30.5';
+const APP_BUILD = '2026-06-30.6';
 console.log('seaside POS — build ' + APP_BUILD);
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];

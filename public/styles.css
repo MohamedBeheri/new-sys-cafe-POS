@@ -330,7 +330,9 @@ tbody tr{transition:.12s}tbody tr:hover{background:var(--surface2)}
      بدل طول الفاتورة فقط — وهذا كان السبب الحقيقي لظهور "2/11 sheets" حتى لفاتورة قصيرة) */
   body > *{display:none!important}
   body > #print-area{display:block!important;position:static;padding:0}
-  #print-area .receipt{width:74mm;margin:0 auto;padding:3mm 0 6mm}
+  /* عرض أضيق من 80mm الاسمي عمداً: الطابعة الحرارية أبلغت أن مساحة الطباعة الفعلية 72.1mm فقط،
+     فأي عرض أوسع منها يُقصّ من الجانبين. 68mm تترك هامش أمان آمن. */
+  #print-area .receipt{width:68mm;margin:0 auto;padding:3mm 0 6mm}
   #print-area .report-doc{width:100%;padding:10mm}
 }
 /* شارة رقم النسخة — للتأكد من وصول آخر تحديث */
