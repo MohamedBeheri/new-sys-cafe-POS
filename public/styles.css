@@ -325,11 +325,13 @@ tbody tr{transition:.12s}tbody tr:hover{background:var(--surface2)}
 .receipt .r-barcode-wrap svg{max-width:100%}
 .receipt .r-footer{font-size:11px;line-height:1.6;margin-top:4px;color:#222}
 @media print{
-  body *{visibility:hidden}
-  #print-area,#print-area *{visibility:visible}
-  #print-area{position:absolute;inset:0;padding:0}
-  #print-area .receipt{width:74mm;padding:3mm 0 6mm}
-  #print-area .report-doc{width:100%;padding:0}
+  /* مهم: نخفي كل أبناء body بـ display:none (يزيلهم من التخطيط تماماً) لا visibility:hidden
+     (التي تُبقي العنصر آخذاً مساحته، فيحسب المتصفح عدد صفحات الطباعة على طول الموقع كله
+     بدل طول الفاتورة فقط — وهذا كان السبب الحقيقي لظهور "2/11 sheets" حتى لفاتورة قصيرة) */
+  body > *{display:none!important}
+  body > #print-area{display:block!important;position:static;padding:0}
+  #print-area .receipt{width:74mm;margin:0 auto;padding:3mm 0 6mm}
+  #print-area .report-doc{width:100%;padding:10mm}
 }
 /* شارة رقم النسخة — للتأكد من وصول آخر تحديث */
 .build-tag{margin-top:14px;font-size:10.5px;color:var(--text3);letter-spacing:.5px;text-align:center;opacity:.6}
