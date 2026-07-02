@@ -464,9 +464,23 @@ app.put('/api/products/:id', auth, admin, (req, res) => {
   res.json({ ok: true });
 });
 app.delete('/api/products/:id', auth, admin, (req, res) => {
-  run('DELETE FROM product_recipes WHERE product_id=?', req.params.id);
-  run('DELETE FROM products WHERE id=?', req.params.id);
+  tx(() => {
+    // فك ربط سجل المبيعات القديم (الاسم محفوظ نسخة في order_items فالتقارير لا تتأثر) وإلا رفضت القاعدة الحذف
+    run('UPDATE order_items SET product_id=NULL WHERE product_id=?', req.params.id);
+    run('DELETE FROM product_recipes WHERE product_id=?', req.params.id);
+    run('DELETE FROM products WHERE id=?', req.params.id);
+  });
+  logAudit(req.user.id, 'product', +req.params.id, 'delete');
   res.json({ ok: true });
+});
+
+// تصدير الأصناف مع مكونات كل صنف (للتحميل Excel)
+app.get('/api/products-export', auth, admin, (_q, res) => {
+  const prods = all(`SELECT p.id,p.name_ar,p.price,p.cost,p.station,p.is_active,p.track_stock,c.name_ar category
+    FROM products p LEFT JOIN categories c ON c.id=p.category_id ORDER BY p.sort_order,p.id`);
+  prods.forEach(p => p.recipe = all(`SELECT m.name_ar, pr.qty, un.symbol unit FROM product_recipes pr
+    JOIN raw_materials m ON m.id=pr.material_id LEFT JOIN units un ON un.id=m.unit_id WHERE pr.product_id=?`, p.id));
+  res.json(prods);
 });
 
 // حفظ الوصفة كاملة وتحديث التكلفة

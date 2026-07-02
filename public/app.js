@@ -1,7 +1,7 @@
 // ===================================================================
 //  واجهة seaside — POS + مخازن + وصفات + حوكمة (ثنائي اللغة + ثيم)
 // ===================================================================
-const APP_BUILD = '2026-06-30.6';
+const APP_BUILD = '2026-07-02.1';
 console.log('seaside POS — build ' + APP_BUILD);
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -762,18 +762,68 @@ ROUTES.notifications = async (view) => {
 // ===================================================================
 ROUTES.products = async (view) => {
   const prods = await api('/products');
+  prods.forEach(p => p.margin = p.price ? ((p.price - p.cost) / p.price * 100) : 0);
+  let sortKey = null, sortDir = 1, query = '';
+  const COLS = [
+    { k: 'name_ar', t: 'الصنف' }, { k: 'category', t: 'التصنيف' }, { k: 'price', t: 'السعر' },
+    { k: 'cost', t: 'تكلفة المكونات' }, { k: 'margin', t: 'هامش الربح' }, { k: 'track_stock', t: 'خصم مخزون' },
+  ];
   view.innerHTML = `<div class="page-head"><div><h2>🍽️ ${t('الأصناف والوصفات')}</h2><div class="crumb">${t('عرّف الأصناف واربطها بمكوناتها الخام (الوصفة) لتُخصم تلقائياً عند البيع')}</div></div>
-    <div class="head-actions"><button class="btn btn-primary" id="p-new">${t('+ صنف جديد')}</button></div></div>
-    <div class="card"><div class="t-wrap"><table><thead><tr><th>${t('الصنف')}</th><th>${t('التصنيف')}</th><th>${t('السعر')}</th><th>${t('تكلفة المكونات')}</th><th>${t('هامش الربح')}</th><th>${t('خصم مخزون')}</th><th></th></tr></thead><tbody>
-    ${prods.map(p => { const margin = p.price ? ((p.price - p.cost) / p.price * 100) : 0; return `<tr>
-      <td><b>${p.image || ''} ${esc(p.name_ar)}</b>${p.low_ing ? `<span class="ing-warn" title="${L('مكوّن قارب على النفاد', 'ingredient running low')}">⚠️ ${L('مكوّن منخفض', 'low ingredient')}</span>` : ''}</td><td>${esc(p.category || '—')}</td><td class="t-num">${money(p.price)}</td>
-      <td class="t-num">${money(p.cost)}</td><td><span class="chip ${margin < 40 ? 'low' : 'ok'}">${num(margin, 0)}%</span></td>
+    <div class="head-actions"><button class="btn btn-ghost" id="p-export">⬇ ${L('تصدير الأصناف والمكونات', 'Export items & ingredients')}</button><button class="btn btn-primary" id="p-new">${t('+ صنف جديد')}</button></div></div>
+    <div class="toolbar"><input type="search" id="p-q" placeholder="${t('🔍 ابحث عن صنف…')}" style="min-width:240px"><span class="chip" id="p-count"></span></div>
+    <div class="card"><div class="t-wrap"><table><thead><tr>
+      ${COLS.map(c => `<th class="th-sort" data-k="${c.k}">${t(c.t)} <span class="s-ar"><span class="up">▲</span><span class="dn">▼</span></span></th>`).join('')}<th></th>
+    </tr></thead><tbody id="p-body"></tbody></table></div></div>`;
+
+  const drawBody = () => {
+    let list = prods.filter(p => !query || p.name_ar.toLowerCase().includes(query) || (p.category || '').toLowerCase().includes(query));
+    if (sortKey) list = [...list].sort((a, b) => {
+      const va = a[sortKey] ?? '', vb = b[sortKey] ?? '';
+      const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : String(va).localeCompare(String(vb), 'ar');
+      return cmp * sortDir;
+    });
+    $('#p-count').textContent = num(list.length) + ' / ' + num(prods.length);
+    $('#p-body').innerHTML = list.map(p => `<tr>
+      <td><b>${p.image || ''} ${esc(p.name_ar)}</b>${p.low_ing ? `<span class="ing-warn" title="${L('مكوّن قارب على النفاد', 'ingredient running low')}">⚠️ ${L('مكوّن منخفض', 'low ingredient')}</span>` : ''}</td>
+      <td>${esc(p.category || '—')}</td><td class="t-num">${money(p.price)}</td>
+      <td class="t-num">${money(p.cost)}</td><td><span class="chip ${p.margin < 40 ? 'low' : 'ok'}">${num(p.margin, 0)}%</span></td>
       <td>${p.track_stock ? '✅' : '—'}</td>
-      <td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" data-r="${p.id}">${t('🧪 الوصفة')}</button> <button class="btn btn-ghost btn-sm" data-e="${p.id}">${t('تعديل')}</button></td></tr>`; }).join('')}
-    </tbody></table></div></div>`;
+      <td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" data-r="${p.id}">${t('🧪 الوصفة')}</button> <button class="btn btn-ghost btn-sm" data-e="${p.id}">${t('تعديل')}</button> <button class="btn btn-danger btn-sm" data-del="${p.id}" title="${t('حذف')}">🗑</button></td></tr>`).join('')
+      || `<tr><td colspan="7" class="empty">${t('لا أصناف')}</td></tr>`;
+    $$('#p-body [data-e]').forEach(b => b.onclick = () => editProduct(prods.find(p => p.id === +b.dataset.e)));
+    $$('#p-body [data-r]').forEach(b => b.onclick = () => editRecipe(+b.dataset.r));
+    $$('#p-body [data-del]').forEach(b => b.onclick = () => {
+      const p = prods.find(x => x.id === +b.dataset.del);
+      confirmDialog(L(`حذف «${p.name_ar}» نهائياً؟`, `Delete "${p.name_ar}" permanently?`), async () => {
+        try { await api('/products/' + p.id, { method: 'DELETE' }); prods.splice(prods.indexOf(p), 1); toast(t('حُذف')); drawBody(); }
+        catch (e) { toast(e.message, 'err'); }
+      });
+    });
+  };
+  const drawArrows = () => $$('.th-sort').forEach(th => {
+    th.classList.toggle('asc', th.dataset.k === sortKey && sortDir === 1);
+    th.classList.toggle('desc', th.dataset.k === sortKey && sortDir === -1);
+  });
+  $$('.th-sort').forEach(th => th.onclick = () => {
+    if (sortKey === th.dataset.k) { if (sortDir === 1) sortDir = -1; else { sortKey = null; sortDir = 1; } }
+    else { sortKey = th.dataset.k; sortDir = 1; }
+    drawArrows(); drawBody();
+  });
+  $('#p-q').oninput = () => { query = $('#p-q').value.trim().toLowerCase(); drawBody(); };
   $('#p-new').onclick = () => editProduct(null);
-  $$('#view [data-e]').forEach(b => b.onclick = () => editProduct(prods.find(p => p.id === +b.dataset.e)));
-  $$('#view [data-r]').forEach(b => b.onclick = () => editRecipe(+b.dataset.r));
+  $('#p-export').onclick = async () => {
+    const data = await api('/products-export');
+    exportExcel('seaside-products-' + todayStr(), data.map(p => ({
+      [L('الصنف', 'Item')]: p.name_ar,
+      [L('التصنيف', 'Category')]: p.category || '',
+      [L('السعر', 'Price')]: p.price,
+      [L('تكلفة المكونات', 'Ingredient cost')]: p.cost,
+      [L('المحطة', 'Station')]: p.station === 'kitchen' ? L('مطبخ', 'Kitchen') : L('بار', 'Bar'),
+      [L('مفعّل', 'Active')]: p.is_active ? '✓' : '✗',
+      [L('المكونات (الوصفة)', 'Ingredients (recipe)')]: p.recipe.map(r => `${r.name_ar} × ${num(r.qty, 2)} ${r.unit || ''}`).join(' ؛ ') || '—',
+    })));
+  };
+  drawBody();
 };
 function editProduct(p) {
   const cats = META.categories;
@@ -788,9 +838,8 @@ function editProduct(p) {
     <div class="field"><label><input type="checkbox" id="f-track" ${p?.track_stock !== 0 ? 'checked' : ''} style="width:auto"> ${t('خصم المكونات من المخزن عند البيع')}</label></div>
     ${p ? `<div class="field"><label><input type="checkbox" id="f-active" ${p.is_active ? 'checked' : ''} style="width:auto"> ${t('صنف مُفعّل (يظهر في الكاشير)')}</label></div>` : ''}
     <div class="err" id="pe"></div>
-    <div class="modal-actions">${p ? `<button class="btn btn-danger" id="f-del">${t('حذف')}</button>` : ''}<button class="btn btn-ghost" id="f-x">${t('إلغاء')}</button><button class="btn btn-primary" id="f-save">${t('حفظ')}</button></div>`);
+    <div class="modal-actions"><button class="btn btn-ghost" id="f-x">${t('إلغاء')}</button><button class="btn btn-primary" id="f-save">${t('حفظ')}</button></div>`);
   $('#f-x', m).onclick = () => m.remove();
-  if (p) $('#f-del', m).onclick = () => confirmDialog(t('حذف الصنف نهائياً؟'), async () => { await api('/products/' + p.id, { method: 'DELETE' }); m.remove(); toast(t('حُذف')); route(); });
   $('#f-save', m).onclick = async () => {
     const body = { name_ar: $('#f-name', m).value.trim(), image: $('#f-img', m).value.trim(), category_id: +$('#f-cat', m).value || null, price: +$('#f-price', m).value || 0, station: $('#f-station', m).value, track_stock: $('#f-track', m).checked ? 1 : 0 };
     if (p) body.is_active = $('#f-active', m).checked ? 1 : 0;

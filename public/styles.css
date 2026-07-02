@@ -305,6 +305,11 @@ tbody tr{transition:.12s}tbody tr:hover{background:var(--surface2)}
 .notif .n-text{color:var(--text2);font-size:13px;margin-top:2px}
 .notif .n-time{color:var(--text3);font-size:11.5px;margin-top:4px}
 .notif .n-dot{width:9px;height:9px;border-radius:50%;background:var(--sea);margin-inline-start:auto;margin-top:6px;flex-shrink:0}
+/* رؤوس أعمدة قابلة للترتيب (تصاعدي/تنازلي) */
+.th-sort{cursor:pointer;user-select:none;white-space:nowrap}
+.th-sort:hover{color:var(--sea-deep)}
+.th-sort .s-ar{display:inline-flex;flex-direction:column;vertical-align:middle;line-height:.72;font-size:8.5px;color:var(--text3);margin-inline-start:3px}
+.th-sort.asc .s-ar .up,.th-sort.desc .s-ar .dn{color:var(--sea-deep);font-weight:900}
 /* تحذير نقص المكونات */
 .ing-warn{display:inline-flex;align-items:center;gap:4px;background:var(--amber-bg);color:var(--amber);font-size:11px;font-weight:700;border-radius:8px;padding:2px 8px;margin-inline-start:6px}
 
