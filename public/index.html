@@ -9,16 +9,19 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-<link rel="stylesheet" href="styles.css?v=20260702.1">
+<script src="qrcode.min.js"></script>
+<link rel="stylesheet" href="styles.css?v=20260704.8">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌊</text></svg>">
 <script>
-  // ضبط اللغة والثيم مبكّراً لتجنّب الوميض
+  // ضبط اللغة والثيم واللون والوضع الشفاف مبكّراً لتجنّب الوميض
   (function(){
     var lang = localStorage.getItem('cafe_lang') || 'ar';
     var theme = localStorage.getItem('cafe_theme') || 'light';
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
     document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.setAttribute('data-preset', localStorage.getItem('cafe_preset') || 'seaside');
+    if (localStorage.getItem('cafe_glass') === '1') document.documentElement.setAttribute('data-glass', '1');
   })();
 </script>
 </head>
@@ -26,6 +29,6 @@
 <div id="root"><div class="loading">…</div></div>
 <div id="print-area" class="hidden"></div>
 <style id="print-page-style"></style>
-<script src="app.js?v=20260702.1"></script>
+<script src="app.js?v=20260704.8"></script>
 </body>
 </html>

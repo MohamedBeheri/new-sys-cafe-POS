@@ -4,3 +4,11 @@ node_modules/
 *.db-wal
 .DS_Store
 .env
+
+# بيانات وقت التشغيل (يولّدها التطبيق — لا تُرفع)
+db/backups/
+public/uploads/
+public/logo-custom.png
+
+# إعدادات محلية للأدوات
+.claude/
