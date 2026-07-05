@@ -1192,6 +1192,91 @@ app.get('/api/reports/suppliers', auth, admin, (_q, res) => res.json(all(`SELECT
   COALESCE(SUM(pu.total),0) total, MAX(pu.created_at) last FROM suppliers s LEFT JOIN purchases pu ON pu.supplier_id=s.id
   GROUP BY s.id ORDER BY total DESC`)));
 
+// ===================================================================
+//  قائمة الدخل الشاملة (P&L) — مبيعات، تكلفة البضاعة، مصروفات، مخزون، ذمم
+//  كل رقم بالفترة المحددة إلا "المخزون الحالي" و"الذمم" فهي لحظية (حتى الآن)
+// ===================================================================
+app.get('/api/reports/pnl', auth, admin, (req, res) => {
+  const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
+
+  // ---------- الإيرادات ----------
+  const salesAgg = get(`SELECT COUNT(*) orders, COALESCE(SUM(subtotal),0) gross,
+    COALESCE(SUM(discount),0) discount, COALESCE(SUM(tax),0) tax, COALESCE(SUM(tip),0) other,
+    COALESCE(SUM(total),0) grand, COALESCE(SUM(paid_amount),0) collected
+    FROM orders WHERE status='paid' AND created_at>=? AND created_at<=?`, from, to);
+  const salesReturnsAgg = get(`SELECT COUNT(*) cnt, COALESCE(SUM(total),0) total
+    FROM sales_returns WHERE created_at>=? AND created_at<=?`, from, to);
+  const netSales = +(salesAgg.gross - salesAgg.discount - salesReturnsAgg.total).toFixed(2);
+  const totalRevenue = +(netSales + salesAgg.other).toFixed(2);
+
+  // ---------- تكلفة البضاعة المباعة (COGS) ----------
+  const ingredientsCost = get(`SELECT COALESCE(SUM(cost_total),0) c FROM orders
+    WHERE status='paid' AND created_at>=? AND created_at<=?`, from, to).c;
+  // عكس تكلفة المرتجعات المُعاد تخزينها (قلّلت من الاستهلاك الفعلي)
+  const returnedCost = get(`SELECT COALESCE(SUM(sri.qty*sri.cost),0) c FROM sales_return_items sri
+    JOIN sales_returns sr ON sr.id=sri.return_id WHERE sr.restock=1 AND sr.created_at>=? AND sr.created_at<=?`, from, to).c;
+  const wasteCost = get(`SELECT COALESCE(SUM(cost),0) c FROM waste_log WHERE created_at>=? AND created_at<=?`, from, to).c;
+  const countVar = get(`SELECT COALESCE(SUM(qty*unit_cost),0) v FROM inventory_transactions
+    WHERE type='count' AND created_at>=? AND created_at<=?`, from, to).v;   // سالب=عجز (يزيد التكلفة)، موجب=فائض (يقلّلها)
+  const countShortage = countVar < 0 ? +Math.abs(countVar).toFixed(2) : 0;
+  const countSurplus = countVar > 0 ? +countVar.toFixed(2) : 0;
+  const totalCogs = +(ingredientsCost - returnedCost + wasteCost + countShortage - countSurplus).toFixed(2);
+  const grossProfit = +(totalRevenue - totalCogs).toFixed(2);
+
+  // ---------- المصروفات التشغيلية ----------
+  const opexByCat = all(`SELECT ec.name_ar, ec.icon, COALESCE(SUM(e.amount),0) total FROM expenses e
+    LEFT JOIN expense_categories ec ON ec.id=e.category_id
+    WHERE COALESCE(e.spent_at,substr(e.created_at,1,10))>=? AND COALESCE(e.spent_at,substr(e.created_at,1,10))<=?
+    GROUP BY ec.id ORDER BY total DESC`, from.slice(0, 10), to.slice(0, 10));
+  const opexTotal = +opexByCat.reduce((s, r) => s + r.total, 0).toFixed(2);
+  const netProfit = +(grossProfit - opexTotal).toFixed(2);
+
+  // ---------- المشتريات خلال الفترة (منفصلة عن COGS — شراء ≠ استهلاك) ----------
+  const purchasesAgg = get(`SELECT COUNT(*) cnt, COALESCE(SUM(total),0) total, COALESCE(SUM(paid_amount),0) paid
+    FROM purchases WHERE created_at>=? AND created_at<=?`, from, to);
+  const purchaseReturnsAgg = get(`SELECT COUNT(*) cnt, COALESCE(SUM(total),0) total
+    FROM purchase_returns WHERE created_at>=? AND created_at<=?`, from, to);
+
+  // ---------- المخزون الحالي (لحظي — وليس تاريخي) ----------
+  const inv = get(`SELECT COUNT(*) items, COALESCE(SUM(qty*avg_cost),0) value FROM raw_materials WHERE is_active=1`);
+  const lowStock = get(`SELECT COUNT(*) c FROM raw_materials WHERE is_active=1 AND qty<=reorder_point`).c;
+
+  // ---------- الذمم (لحظية: كل الفواتير المفتوحة، بلا قيد بالفترة) ----------
+  const receivables = get(`SELECT COUNT(*) cnt, COALESCE(SUM(total-paid_amount),0) v FROM orders
+    WHERE status='paid' AND payment_status IN('partial','credit') AND total>paid_amount`);
+  const payables = get(`SELECT COUNT(*) cnt, COALESCE(SUM(total-paid_amount),0) v FROM purchases
+    WHERE payment_status IN('partial','credit') AND total>paid_amount`);
+
+  // ---------- نسب ومؤشرات ----------
+  const pct = (a, b) => b ? +((a / b) * 100).toFixed(1) : 0;
+
+  res.json({
+    from, to,
+    revenue: {
+      grossSales: +salesAgg.gross.toFixed(2), discount: +salesAgg.discount.toFixed(2),
+      salesReturns: salesReturnsAgg.total, otherRevenue: +salesAgg.other.toFixed(2),
+      netSales, totalRevenue, taxCollected: +salesAgg.tax.toFixed(2),
+      ordersCount: salesAgg.orders, avgOrderValue: salesAgg.orders ? +(salesAgg.grand / salesAgg.orders).toFixed(2) : 0,
+    },
+    cogs: {
+      ingredientsCost: +ingredientsCost.toFixed(2), returnedCost: +returnedCost.toFixed(2),
+      wasteCost: +wasteCost.toFixed(2), countShortage, countSurplus, total: totalCogs,
+    },
+    grossProfit, grossMarginPct: pct(grossProfit, totalRevenue),
+    opex: { byCategory: opexByCat, total: opexTotal },
+    netProfit, netMarginPct: pct(netProfit, totalRevenue),
+    cogsPctOfSales: pct(totalCogs, netSales),          // "فود كوست" — أهم مؤشر لمطاعم/كافيهات
+    wastePctOfCogs: pct(wasteCost, totalCogs),
+    wastePctOfSales: pct(wasteCost, netSales),
+    purchases: { count: purchasesAgg.cnt, total: +purchasesAgg.total.toFixed(2), paid: +purchasesAgg.paid.toFixed(2),
+      due: +(purchasesAgg.total - purchasesAgg.paid).toFixed(2) },
+    purchaseReturns: purchaseReturnsAgg,
+    inventory: { value: +inv.value.toFixed(2), itemsCount: inv.items, lowStockCount: lowStock },
+    receivables: { count: receivables.cnt, value: +receivables.v.toFixed(2) },
+    payables: { count: payables.cnt, value: +payables.v.toFixed(2) },
+  });
+});
+
 // المبيعات حسب الفئة
 app.get('/api/reports/categories', auth, admin, (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';

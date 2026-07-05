@@ -721,3 +721,34 @@ html[data-theme="dark"] .topbar{box-shadow:0 2px 12px rgba(0,0,0,.25)}
 /* تمييز بطاقة الدليفري في شاشة الطلبات */
 .qr-pending.qr-del{border-color:var(--sand)}
 .qr-pending.qr-del .kh{background:var(--sand-deep)}
+
+/* ===================================================================
+   قائمة الدخل الشاملة (P&L) — عرض محاسبي هرمي بأقسام وإجماليات
+   =================================================================== */
+.pnl-grid{display:grid;grid-template-columns:1.6fr 1fr;gap:18px;align-items:start}
+@media(max-width:980px){.pnl-grid{grid-template-columns:1fr}}
+.pnl-sec-h{font-size:13px;font-weight:800;color:var(--sea-deep);text-transform:uppercase;letter-spacing:.4px;
+  margin:18px 0 8px;padding-bottom:6px;border-bottom:2px solid var(--sea-light)}
+.pnl-sec-h:first-child{margin-top:0}
+.pnl-line{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:14px;padding:5px 2px;color:var(--text2)}
+.pnl-line b{font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pnl-line.neg b{color:var(--red)}
+.pnl-line.sub{border-top:1px dashed var(--border);margin-top:4px;padding-top:8px;font-weight:700;color:var(--text)}
+.pnl-line.sub b{font-size:15px}
+.pnl-line.total{border-top:1.5px solid var(--border);margin-top:6px;padding-top:9px;font-weight:800;color:var(--text)}
+.pnl-line.total b{font-size:16px;color:var(--sea-deep)}
+.pnl-line.grand{background:var(--sea-light);border-radius:12px;padding:14px 16px;margin:14px 0;align-items:center}
+.pnl-line.grand span{font-weight:800;font-size:15.5px;color:var(--sea-deep)}
+.pnl-line.grand b{font-size:24px;color:var(--sea-deep)}
+.pnl-line.grand.final{background:linear-gradient(135deg,var(--sea),var(--sea-deep));margin-top:18px}
+.pnl-line.grand.final span,.pnl-line.grand.final b{color:#fff}
+.pnl-line.grand small{display:block;font-weight:600;font-size:11.5px;opacity:.75;margin-top:2px}
+.pnl-line.grand.final small{opacity:.9}
+.pnl-line.neg-final b{color:#FFD9CF}
+.pnl-side-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin-bottom:14px;box-shadow:var(--shadow)}
+.pnl-side-card h4{font-size:13px;font-weight:800;color:var(--text2);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.pnl-ratio{display:flex;justify-content:space-between;align-items:center;padding:7px 0;font-size:13px;border-bottom:1px dashed var(--border)}
+.pnl-ratio:last-child{border-bottom:none}
+.pnl-ratio b{font-size:16px;font-variant-numeric:tabular-nums}
+.pnl-ratio b.warn{color:var(--amber)}.pnl-ratio b.bad{color:var(--red)}.pnl-ratio b.good{color:var(--green)}
+.pnl-note{font-size:11.5px;color:var(--text3);line-height:1.7;margin-top:6px;padding-top:8px;border-top:1px dashed var(--border)}

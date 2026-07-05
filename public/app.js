@@ -1,7 +1,7 @@
 // ===================================================================
 //  واجهة seaside — POS + مخازن + وصفات + حوكمة (ثنائي اللغة + ثيم)
 // ===================================================================
-const APP_BUILD = '2026-07-04.8';
+const APP_BUILD = '2026-07-05.1';
 console.log('seaside POS — build ' + APP_BUILD);
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -1663,7 +1663,98 @@ function exportPDF(title, columns, rows, kpis) {
   window.addEventListener('afterprint', done); setTimeout(() => window.print(), 150);
 }
 
+// ---------- قائمة الدخل الشاملة (P&L) ----------
+// تصنيف الألوان: أدنى=أفضل (تكلفة/هدر) أو أعلى=أفضل (هامش ربح)
+const rLow = (v, good, warn) => v <= good ? 'good' : v <= warn ? 'warn' : 'bad';
+const rHigh = (v, good, warn) => v >= good ? 'good' : v >= warn ? 'warn' : 'bad';
+function pnlHTML(d) {
+  const r = d.revenue, c = d.cogs, o = d.opex;
+  const line = (label, val, cls = '') => `<div class="pnl-line ${cls}"><span>${label}</span><b>${money(val)}</b></div>`;
+  return `<div class="pnl-grid">
+    <div class="card">
+      <div class="pnl-sec-h">💰 ${t('الإيرادات')}</div>
+      ${line(t('إجمالي المبيعات (قبل الخصم)'), r.grossSales)}
+      ${r.discount ? line('(−) ' + t('خصومات المبيعات'), -r.discount, 'neg') : ''}
+      ${r.salesReturns ? line('(−) ' + t('مرتجعات المبيعات'), -r.salesReturns, 'neg') : ''}
+      ${line('= ' + t('صافي المبيعات'), r.netSales, 'sub')}
+      ${r.otherRevenue ? line('(+) ' + t('إيرادات أخرى (توصيل/بقشيش محصّل)'), r.otherRevenue) : ''}
+      ${line(t('إجمالي الإيرادات'), r.totalRevenue, 'total')}
+
+      <div class="pnl-sec-h">📦 ${t('تكلفة البضاعة المباعة')} (COGS)</div>
+      ${line(t('تكلفة مكوّنات المبيعات (حسب الوصفات)'), c.ingredientsCost)}
+      ${c.returnedCost ? line('(−) ' + t('عكس تكلفة مرتجعات أُعيدت للمخزون'), -c.returnedCost, 'neg') : ''}
+      ${c.wasteCost ? line('(+) ' + t('توالف وهدر'), c.wasteCost) : ''}
+      ${c.countShortage ? line('(+) ' + t('عجز الجرد'), c.countShortage) : ''}
+      ${c.countSurplus ? line('(−) ' + t('فائض الجرد'), -c.countSurplus, 'neg') : ''}
+      ${line(t('إجمالي تكلفة البضاعة'), c.total, 'total')}
+
+      <div class="pnl-line grand"><span>${t('إجمالي الربح')} (Gross Profit)</span><b>${money(d.grossProfit)}</b><small>${t('هامش إجمالي')} ${num(d.grossMarginPct, 1)}%</small></div>
+
+      <div class="pnl-sec-h">💸 ${t('المصروفات التشغيلية')}</div>
+      ${o.byCategory.length ? o.byCategory.map(x => line((x.icon || '') + ' ' + (x.name_ar || t('غير مصنّف')), x.total)).join('') : `<div class="pnl-line" style="color:var(--text3)">${t('لا مصروفات مسجّلة في هذه الفترة')}</div>`}
+      ${line(t('إجمالي المصروفات'), o.total, 'total')}
+
+      <div class="pnl-line grand final"><span>🏆 ${t('صافي الربح')} (Net Profit)</span><b>${money(d.netProfit)}</b><small>${t('هامش صافي')} ${num(d.netMarginPct, 1)}%</small></div>
+    </div>
+    <div>
+      <div class="pnl-side-card"><h4>📊 ${t('مؤشرات محاسبية')}</h4>
+        <div class="pnl-ratio"><span>${t('نسبة تكلفة البضاعة (Food Cost)')}</span><b class="${rLow(d.cogsPctOfSales, 30, 40)}">${num(d.cogsPctOfSales, 1)}%</b></div>
+        <div class="pnl-ratio"><span>${t('هامش الربح الإجمالي')}</span><b class="${rHigh(d.grossMarginPct, 60, 45)}">${num(d.grossMarginPct, 1)}%</b></div>
+        <div class="pnl-ratio"><span>${t('هامش الربح الصافي')}</span><b class="${rHigh(d.netMarginPct, 15, 5)}">${num(d.netMarginPct, 1)}%</b></div>
+        <div class="pnl-ratio"><span>${t('الهدر من تكلفة البضاعة')}</span><b class="${rLow(d.wastePctOfCogs, 3, 7)}">${num(d.wastePctOfCogs, 1)}%</b></div>
+        <div class="pnl-ratio"><span>${t('الهدر من صافي المبيعات')}</span><b>${num(d.wastePctOfSales, 1)}%</b></div>
+        <div class="pnl-ratio"><span>${t('متوسط قيمة الفاتورة')}</span><b>${money(r.avgOrderValue)}</b></div>
+        <div class="pnl-ratio"><span>${t('عدد الفواتير المدفوعة')}</span><b>${num(r.ordersCount)}</b></div>
+      </div>
+      <div class="pnl-side-card"><h4>🚚 ${t('المشتريات والذمم')}</h4>
+        <div class="pnl-ratio"><span>${t('مشتريات الفترة')}</span><b>${money(d.purchases.total)}</b></div>
+        <div class="pnl-ratio"><span>${t('المدفوع منها')}</span><b>${money(d.purchases.paid)}</b></div>
+        ${d.purchaseReturns.total ? `<div class="pnl-ratio"><span>${t('مرتجعات مشتريات الفترة')}</span><b>${money(d.purchaseReturns.total)}</b></div>` : ''}
+        <div class="pnl-ratio"><span>${t('مستحق للموردين (كل الوقت)')}</span><b class="${d.payables.value > 0 ? 'warn' : 'good'}">${money(d.payables.value)}</b></div>
+        <div class="pnl-ratio"><span>${t('مستحق لنا من العملاء (كل الوقت)')}</span><b class="${d.receivables.value > 0 ? 'warn' : 'good'}">${money(d.receivables.value)}</b></div>
+        <div class="pnl-note">${t('الذمم أرقام لحظية (كل الفواتير الآجلة/الجزئية غير المسدَّدة) وليست محصورة بالفترة المحددة أعلاه')}</div>
+      </div>
+      <div class="pnl-side-card"><h4>📦 ${t('المخزون الحالي')} <small style="font-weight:400;color:var(--text3)">(${t('لحظي')})</small></h4>
+        <div class="pnl-ratio"><span>${t('قيمة المخزون بالتكلفة')}</span><b>${money(d.inventory.value)}</b></div>
+        <div class="pnl-ratio"><span>${t('عدد الأصناف الخام')}</span><b>${num(d.inventory.itemsCount)}</b></div>
+        <div class="pnl-ratio"><span>${t('أصناف تحت حد إعادة الطلب')}</span><b class="${d.inventory.lowStockCount ? 'bad' : 'good'}">${num(d.inventory.lowStockCount)}</b></div>
+        <div class="pnl-note">${t('قيمة المخزون رقم لحظي حتى الآن — لا يُحسب تاريخياً بنهاية الفترة المحددة أعلاه لأن النظام لا يحتفظ بصور تاريخية للمخزون')}</div>
+      </div>
+    </div>
+  </div>`;
+}
+// تسطيح التقرير لصفوف Excel (بند/قيمة) مع فواصل أقسام
+function pnlRows(d) {
+  const r = d.revenue, c = d.cogs, o = d.opex, K = 'البند', V = 'القيمة';
+  const sec = (s) => ({ [K]: '— ' + s + ' —', [V]: '' });
+  const row = (l, v) => ({ [K]: l, [V]: v });
+  return [
+    sec('الإيرادات'), row('إجمالي المبيعات', r.grossSales), row('خصومات المبيعات', -r.discount),
+    row('مرتجعات المبيعات', -r.salesReturns), row('صافي المبيعات', r.netSales), row('إيرادات أخرى', r.otherRevenue),
+    row('إجمالي الإيرادات', r.totalRevenue),
+    sec('تكلفة البضاعة المباعة'), row('تكلفة المكوّنات', c.ingredientsCost), row('عكس تكلفة مرتجعات', -c.returnedCost),
+    row('توالف وهدر', c.wasteCost), row('عجز الجرد', c.countShortage), row('فائض الجرد', -c.countSurplus),
+    row('إجمالي تكلفة البضاعة', c.total), row('إجمالي الربح (Gross Profit)', d.grossProfit),
+    sec('المصروفات التشغيلية'), ...o.byCategory.map(x => row(x.name_ar || 'غير مصنّف', x.total)),
+    row('إجمالي المصروفات', o.total), row('صافي الربح (Net Profit)', d.netProfit),
+    sec('مؤشرات'), row('نسبة تكلفة البضاعة %', d.cogsPctOfSales), row('هامش الربح الإجمالي %', d.grossMarginPct),
+    row('هامش الربح الصافي %', d.netMarginPct), row('الهدر من تكلفة البضاعة %', d.wastePctOfCogs),
+    sec('المشتريات والذمم'), row('مشتريات الفترة', d.purchases.total), row('المدفوع منها', d.purchases.paid),
+    row('مستحق للموردين', d.payables.value), row('مستحق من العملاء', d.receivables.value),
+    sec('المخزون الحالي (لحظي)'), row('قيمة المخزون', d.inventory.value), row('عدد الأصناف الخام', d.inventory.itemsCount),
+  ];
+}
+function printPnL(d) {
+  const head = `<div class="rd-head">${logoMark('rd-logo')}<div class="rd-title"><h1>${esc(META.settings.cafe_name || 'seaside')}</h1><div>${t('الأرباح والخسائر الشاملة')}</div><small>${dDay(d.from)} ← ${dDay(d.to.replace('￿', ''))} · ${new Date().toLocaleString('en-GB')}</small></div></div>`;
+  const pa = $('#print-area'); pa.innerHTML = `<div class="report-doc">${head}${pnlHTML(d)}</div>`; pa.classList.remove('hidden');
+  setPrintPage('@page{size:A4;margin:14mm}');
+  const done = () => { pa.classList.add('hidden'); pa.innerHTML = ''; setPrintPage(''); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done); setTimeout(() => window.print(), 150);
+}
+
 const REPORTS = [
+  { sec: ['التقرير الشامل', 'Overview'] },
+  { k: 'pnl', ic: '🧮', t: ['الأرباح والخسائر الشاملة', 'Full P&L statement'] },
   { sec: ['المبيعات', 'Sales'] },
   { k: 'sales', ic: '📊', t: ['ملخص المبيعات', 'Sales summary'] },
   { k: 'sales_type', ic: '🍽️', t: ['المبيعات حسب النوع', 'Sales by type'] },
@@ -1723,7 +1814,12 @@ ROUTES.reports = async (view) => {
     const body = $('#r-body'); body.innerHTML = '<div class="loading">…</div>';
     let kpis = [], columns = [], rows = [];
     try {
-      if (curR === 'sales') {
+      if (curR === 'pnl') {
+        const d = await api('/reports/pnl' + qs);
+        current = { title, pnl: d };
+        body.innerHTML = pnlHTML(d);
+        return;
+      } else if (curR === 'sales') {
         const d = await api('/reports/sales' + qs); const s = d.summary;
         kpis = [{ lbl: t('المبيعات'), val: money(s.sales) }, { lbl: t('تكلفة المكونات'), val: money(s.cost) }, { lbl: t('صافي الربح'), val: money(s.profit) }, { lbl: L('عدد الطلبات', 'Orders'), val: num(s.orders) },
           { lbl: t('المحصَّل'), val: money(s.collected) }, { lbl: t('آجل غير محصَّل'), val: money(s.due) }, { lbl: t('الخصومات'), val: money(s.discount) }, { lbl: t('التوصيل'), val: money(s.tip_delivery) }];
@@ -1835,8 +1931,14 @@ ROUTES.reports = async (view) => {
   };
   $('#r-go').onclick = load;
   $('#r-material').onchange = load;
-  $('#r-xls').onclick = () => { const out = current.rows.map(r => { const o = {}; current.columns.forEach(c => o[c.label] = r[c.key]); return o; }); exportExcel('seaside-' + curR + '-' + todayStr(), out); };
-  $('#r-pdf').onclick = () => current.rows.length ? exportPDF(current.title, current.columns, current.rows, current.kpis) : toast(L('لا بيانات للتصدير', 'No data to export'), 'warn');
+  $('#r-xls').onclick = () => {
+    if (curR === 'pnl') return current.pnl ? exportExcel('seaside-pnl-' + todayStr(), pnlRows(current.pnl)) : toast(L('لا بيانات للتصدير', 'No data to export'), 'warn');
+    const out = current.rows.map(r => { const o = {}; current.columns.forEach(c => o[c.label] = r[c.key]); return o; }); exportExcel('seaside-' + curR + '-' + todayStr(), out);
+  };
+  $('#r-pdf').onclick = () => {
+    if (curR === 'pnl') return current.pnl ? printPnL(current.pnl) : toast(L('لا بيانات للتصدير', 'No data to export'), 'warn');
+    return current.rows.length ? exportPDF(current.title, current.columns, current.rows, current.kpis) : toast(L('لا بيانات للتصدير', 'No data to export'), 'warn');
+  };
   $$('#rep-list .rep-item').forEach(b => b.onclick = () => { curR = b.dataset.r; $$('#rep-list .rep-item').forEach(x => x.classList.toggle('active', x === b)); load(); });
   load();
 };
