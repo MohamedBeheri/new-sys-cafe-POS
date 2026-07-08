@@ -65,6 +65,19 @@ export function migrate() {
 
   db.exec('CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id)');
 
+  // نظام الصلاحيات: مصفوفة صلاحيات JSON لكل دور (الأدمن يتجاوزها دائماً)
+  addCol('roles', 'permissions', 'TEXT');
+  const DEFAULT_PERMS = {
+    cashier: ['pos.view', 'pos.create', 'pos.draft', 'pos.discount', 'pos.pay_credit',
+      'orders.view', 'orders.pay', 'orders.cancel', 'orders.settle',
+      'qrorders.view', 'qrorders.accept', 'delivery.view', 'delivery.accept',
+      'shifts.view', 'shifts.close', 'customers.view', 'customers.edit', 'notifications.view'],
+    kitchen: ['kds.view', 'orders.view', 'requests.view', 'requests.create', 'notifications.view'],
+    bar: ['bar.view', 'orders.view', 'requests.view', 'requests.create', 'notifications.view'],
+  };
+  all("SELECT id,key FROM roles WHERE permissions IS NULL AND key<>'admin'").forEach(r =>
+    run('UPDATE roles SET permissions=? WHERE id=?', JSON.stringify(DEFAULT_PERMS[r.key] || []), r.id));
+
   // القيم القديمة: الفواتير المدفوعة سابقاً تعتبر محصلة بالكامل
   run("UPDATE orders SET paid_amount=total WHERE status='paid' AND paid_amount=0 AND payment_status='paid'");
   run('UPDATE purchases SET paid_amount=total WHERE paid_amount=0 AND payment_status=\'paid\'');

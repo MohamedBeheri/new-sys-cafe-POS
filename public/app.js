@@ -1,7 +1,7 @@
 // ===================================================================
 //  واجهة seaside — POS + مخازن + وصفات + حوكمة (ثنائي اللغة + ثيم)
 // ===================================================================
-const APP_BUILD = '2026-07-05.1';
+const APP_BUILD = '2026-07-06.1';
 console.log('seaside POS — build ' + APP_BUILD);
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -133,7 +133,7 @@ function confirmDialog(msg, onYes, danger = true) {
   $('#c-no', m).onclick = () => m.remove();
   $('#c-yes', m).onclick = () => { m.remove(); onYes(); };
 }
-const STATUS = { open: ['مفتوح', 'Open'], confirmed: ['بالمطبخ', 'In kitchen'], paid: ['مدفوع', 'Paid'], cancelled: ['ملغي', 'Cancelled'], new: ['جديد', 'New'], preparing: ['تحضير', 'Preparing'], ready: ['جاهز', 'Ready'], served: ['تم التقديم', 'Served'] };
+const STATUS = { open: ['🟠 فاتورة مفتوحة', '🟠 Open tab'], confirmed: ['بالمطبخ', 'In kitchen'], paid: ['مدفوع', 'Paid'], cancelled: ['ملغي', 'Cancelled'], new: ['جديد', 'New'], preparing: ['تحضير', 'Preparing'], ready: ['جاهز', 'Ready'], served: ['تم التقديم', 'Served'] };
 const TYPE = { dine_in: ['🪑 صالة', '🪑 Dine-in'], takeaway: ['🥡 تيك أواي', '🥡 Takeaway'], delivery: ['🛵 توصيل', '🛵 Delivery'] };
 const LL = (m, k) => m[k] ? m[k][LANG === 'en' ? 1 : 0] : k;
 const stBadge = (s) => `<span class="badge-st st-${s}">${LL(STATUS, s)}</span>`;
@@ -238,8 +238,16 @@ const NAV = [
   { id: 'config', ic: '⚙️', t: 'الإعدادات', roles: ['admin'] },
   { id: 'backup', ic: '💾', t: 'النسخ الاحتياطي', roles: ['admin'] },
 ];
-const can = (id) => { const n = NAV.find(x => x.id === id); return n && n.roles.includes(ME.role_key); };
-const firstRoute = () => (NAV.find(n => n.id && n.roles.includes(ME.role_key)) || { id: 'pos' }).id;
+// الصلاحيات: الأدمن يرى كل شيء، الباقي حسب مصفوفة صلاحيات دوره (ME.perms من السيرفر)
+// fallback على roles القديمة لو الدور بلا مصفوفة (توافقاً مع بيانات قديمة)
+const hasPerm = (key) => ME?.role_key === 'admin' || (ME?.perms || []).includes(key);
+const can = (id) => {
+  const n = NAV.find(x => x.id === id); if (!n) return false;
+  if (ME.role_key === 'admin') return true;
+  if (Array.isArray(ME.perms) && ME.perms.length) return ME.perms.includes(id + '.view');
+  return n.roles.includes(ME.role_key);
+};
+const firstRoute = () => (NAV.find(n => n.id && can(n.id)) || { id: 'pos' }).id;
 
 // أزرار الهيدر العلوي المتاحة — يُتحكم في ظهورها من الإعدادات (topbar_icons)
 const TOPBAR = [
@@ -256,7 +264,7 @@ const topbarEnabled = () => { try { return JSON.parse(META.settings.topbar_icons
 function renderShell() {
   const items = NAV.map(n => {
     if (n.sec) return `<div class="sec">${t(n.sec)}</div>`;
-    if (!n.roles.includes(ME.role_key)) return '';
+    if (!can(n.id)) return '';
     return `<a href="#/${n.id}" data-r="${n.id}"><span class="ic">${n.ic}</span> ${t(n.t)}<span class="badge hidden" id="badge-${n.id}"></span></a>`;
   }).join('');
   const enabled = topbarEnabled();
@@ -275,6 +283,7 @@ function renderShell() {
         <div class="build-tag sb">v${APP_BUILD}</div>
       </div>
     </aside>
+    <div class="sb-overlay" id="sb-overlay"></div>
     <main class="main-wrap">
       <header class="topbar">
         <button class="tb-menu" id="tb-hamburger" title="${t('القائمة')}">☰</button>
@@ -288,8 +297,10 @@ function renderShell() {
   $('#sb-lang').onclick = () => setLang(LANG === 'en' ? 'ar' : 'en');
   $('#sb-theme').onclick = () => setTheme(THEME === 'dark' ? 'light' : 'dark');
   $('#sb-menu').onclick = () => window.open('/menu', '_blank');
-  $('#tb-hamburger').onclick = () => $('#sidebar').classList.toggle('open');
-  $$('.nav a').forEach(a => a.onclick = () => { $('#sidebar').classList.remove('open'); });
+  const syncOverlay = () => $('#sb-overlay').classList.toggle('show', $('#sidebar').classList.contains('open'));
+  $('#tb-hamburger').onclick = () => { $('#sidebar').classList.toggle('open'); syncOverlay(); };
+  $('#sb-overlay').onclick = () => { $('#sidebar').classList.remove('open'); syncOverlay(); };
+  $$('.nav a').forEach(a => a.onclick = () => { $('#sidebar').classList.remove('open'); syncOverlay(); });
   $$('.tb-btn').forEach(b => b.onclick = () => topbarAction(b.dataset.tb));
   startClock();
 }
@@ -483,7 +494,7 @@ const chOpts = () => ({ plugins: { legend: { display: false } }, scales: { y: { 
 // ===================================================================
 //  نقطة البيع (POS)
 // ===================================================================
-let CART = [], POS_PRODUCTS = [], POS_CAT = null, POS_STATE = { type: 'dine_in', table_id: '', guests: 1, waiter_id: '', discount: 0, customer: null };
+let CART = [], POS_PRODUCTS = [], POS_CAT = null, POS_STATE = { type: 'dine_in', table_id: '', guests: 1, waiter_id: '', discount: 0, customer: null, open_order: null };
 let POS_SHIFT = null;   // الوردية المفتوحة للكاشير الحالي
 let POS_VIEW = localStorage.getItem('cafe_pos_view') || 'compact';   // grid | compact | list
 
@@ -578,6 +589,7 @@ function renderCart() {
         <input id="c-guests" type="number" min="1" value="${POS_STATE.guests}" style="max-width:70px" title="${t('عدد الأفراد')}">` : ''}
         <select id="c-waiter"><option value="">${t('— النادل —')}</option>${META.waiters.map(w => `<option value="${w.id}" ${POS_STATE.waiter_id == w.id ? 'selected' : ''}>${esc(w.full_name)}</option>`).join('')}</select>
       </div>
+      ${POS_STATE.open_order ? `<div class="open-banner">🟠 ${t('استكمال فاتورة مفتوحة')} <b>${esc(POS_STATE.open_order.invoice_no)}</b><button id="ob-x" title="${L('إلغاء الاستكمال وبدء فاتورة جديدة', 'Detach and start fresh')}">✕</button></div>` : ''}
       <div class="cust-row">
         <button class="cust-pick" id="c-cust">${POS_STATE.customer
           ? `👤 ${esc(POS_STATE.customer.name_ar)}${pointsOn() ? ` <span class="chip pts">⭐ ${num(POS_STATE.customer.points, 1)}</span>` : ''}`
@@ -589,19 +601,23 @@ function renderCart() {
     </div>
     <div class="cart-items" id="cart-items">
       ${CART.length ? CART.map((c, i) => `<div class="ci">
-        <div class="ci-nm"><div class="n">${c.image || ''} ${esc(c.name)}</div><div class="note" data-n="${i}">${c.note ? '📝 ' + esc(c.note) : t('+ ملاحظة')}</div></div>
+        <div class="ci-nm"><div class="n">${prodThumb(c.image, 'ci-thumb')} ${esc(c.name)}</div><div class="note" data-n="${i}">${c.note ? '📝 ' + esc(c.note) : t('+ ملاحظة')}</div></div>
         <div class="qtybox"><button data-m="${i}">−</button><span class="q">${c.qty}</span><button data-p="${i}">+</button></div>
         <div class="ci-pr">${money(c.price * c.qty)}</div><button class="ci-x" data-x="${i}">✕</button></div>`).join('')
       : `<div class="cart-empty">${t('🛒 السلة فارغة')}<br><small>${t('اضغط على الأصناف لإضافتها')}</small></div>`}
     </div>
     <div class="cart-foot">
       <div class="sumline"><span>${t('الإجمالي الفرعي')}</span><span class="t-num">${money(tot.subtotal)}</span></div>
-      <div class="sumline"><span>${t('خصم')} <a id="c-disc" style="color:var(--sea-deep);cursor:pointer">✎</a></span><span class="t-num">${money(tot.discount)}</span></div>
+      <div class="sumline"><span>${t('خصم')}</span>${hasPerm('pos.discount')
+        ? `<span class="disc-wrap"><input id="c-disc-in" type="number" min="0" step="any" value="${POS_STATE.discount || ''}" placeholder="0"> ${cur()}</span>`
+        : `<span class="t-num">${money(tot.discount)}</span>`}</div>
       ${tot.taxes.filter(tx => tx.amount > 0).map(tx => `<div class="sumline"><span>${esc(tx.name)} (${num(tx.rate, 1)}%)</span><span class="t-num">${money(tx.amount)}</span></div>`).join('')}
       <div class="sumline total"><span>${t('المطلوب')}</span><span class="t-num">${money(tot.total)}</span></div>
       <div class="cart-actions">
-        ${['admin', 'cashier'].includes(ME.role_key) ? `<button class="btn btn-ghost" id="c-send" ${CART.length ? '' : 'disabled'}>${L('👨‍🍳 إرسال للتحضير', '👨‍🍳 Send to prep')}</button>` : ''}
-        <button class="btn btn-primary btn-block" id="c-pay" ${CART.length ? '' : 'disabled'}>${t('💵 الدفع')}</button>
+        ${isDine
+          ? (hasPerm('pos.draft') ? `<button class="btn btn-ghost" id="c-draft" ${CART.length ? '' : 'disabled'}>${L('💾 حفظ مؤقت', '💾 Save open tab')}</button>` : '')
+          : (hasPerm('pos.create') ? `<button class="btn btn-ghost" id="c-send" ${CART.length ? '' : 'disabled'}>${L('👨‍🍳 إرسال للتحضير', '👨‍🍳 Send to prep')}</button>` : '')}
+        ${hasPerm('pos.create') ? `<button class="btn btn-primary btn-block" id="c-pay" ${CART.length ? '' : 'disabled'}>${t('💵 الدفع')}</button>` : ''}
       </div>
     </div>`;
 
@@ -610,22 +626,67 @@ function renderCart() {
   $$('#cart-items [data-m]').forEach(b => b.onclick = () => { const i = +b.dataset.m; if (--CART[i].qty <= 0) CART.splice(i, 1); renderCart(); });
   $$('#cart-items [data-x]').forEach(b => b.onclick = () => { CART.splice(+b.dataset.x, 1); renderCart(); });
   $$('#cart-items [data-n]').forEach(b => b.onclick = () => { const i = +b.dataset.n; const v = prompt(t('ملاحظة / تعديل (مثال: بدون بصل، إضافي شوت):'), CART[i].note || ''); if (v !== null) { CART[i].note = v.trim(); renderCart(); } });
-  const tbl = $('#c-table'); if (tbl) tbl.onchange = () => POS_STATE.table_id = tbl.value;
+  const tbl = $('#c-table'); if (tbl) tbl.onchange = () => { POS_STATE.table_id = tbl.value; checkTableOpenOrder(tbl.value); };
   const g = $('#c-guests'); if (g) g.onchange = () => POS_STATE.guests = +g.value || 1;
   const w = $('#c-waiter'); if (w) w.onchange = () => POS_STATE.waiter_id = w.value;
   $('#c-cust').onclick = () => pickCustomer(c => { POS_STATE.customer = c; renderCart(); });
   const cx = $('#c-cust-x'); if (cx) cx.onclick = (e) => { e.stopPropagation(); POS_STATE.customer = null; renderCart(); };
   const sh = $('#c-shift'); if (sh) sh.onclick = () => openShiftModal(false);
-  $('#c-disc').onclick = () => { const v = prompt(t('قيمة الخصم:'), POS_STATE.discount || 0); if (v !== null) { POS_STATE.discount = Math.max(0, +v || 0); renderCart(); } };
+  // خانة الخصم: تحديث القيم بدون إعادة رسم كامل (حتى لا يفقد الحقل التركيز أثناء الكتابة)
+  const dIn = $('#c-disc-in'); if (dIn) dIn.oninput = () => {
+    POS_STATE.discount = Math.max(0, +dIn.value || 0);
+    const tot2 = cartTotals();
+    const totEl = $('.cart-foot .sumline.total .t-num'); if (totEl) totEl.textContent = money(tot2.total);
+  };
   const sendBtn = $('#c-send'); if (sendBtn) sendBtn.onclick = sendToKitchen;
-  $('#c-pay').onclick = openPayment;
+  const draftBtn = $('#c-draft'); if (draftBtn) draftBtn.onclick = saveDraft;
+  const obx = $('#ob-x'); if (obx) obx.onclick = () => confirmDialog(L('إلغاء الاستكمال؟ الفاتورة المفتوحة ستبقى كما هي محفوظة، وستبدأ فاتورة جديدة فارغة.', 'Detach? The open tab stays saved; you start a fresh order.'), () => { clearCart(); }, false);
+  const payBtn = $('#c-pay'); if (payBtn) payBtn.onclick = openPayment;
+}
+// حفظ مؤقت (فاتورة مفتوحة) — للصالة فقط: تُحفظ ببيانات الطاولة ويمكن استكمالها لاحقاً
+async function saveDraft() {
+  if (POS_STATE.type !== 'dine_in') return;
+  if (!POS_STATE.table_id) return toast(L('اختر الطاولة أولاً — الفاتورة المفتوحة تُحفظ على الطاولة', 'Pick a table first — open tabs are saved per table'), 'warn');
+  try {
+    const o = await api('/orders', { method: 'POST', body: orderPayload('open') });
+    toast(`🟠 ${L('حُفظت فاتورة مفتوحة', 'Open tab saved')} — ${o.invoice_no} (${o.table_name || ''})`);
+    clearCart(); refreshKDSBadge();
+  } catch (e) { toast(e.message, 'err'); }
+}
+// عند اختيار طاولة: لو عليها فاتورة مفتوحة اعرض استكمالها
+async function checkTableOpenOrder(tableId) {
+  if (!tableId || POS_STATE.open_order) return;
+  try {
+    const rows = await api(`/orders?status=open&type=dine_in&table=${tableId}`);
+    const open = rows.find(o => o.source !== 'qr');
+    if (!open) return;
+    confirmDialog(L(`الطاولة دي عليها فاتورة مفتوحة ${open.invoice_no} بإجمالي ${money(open.total)} — تحب تستكملها؟`,
+      `This table has an open tab ${open.invoice_no} (${money(open.total)}) — resume it?`),
+      () => resumeOpenOrder(open.id), false);
+  } catch { /* تجاهل */ }
+}
+// استرجاع فاتورة مفتوحة لنقطة البيع (من اختيار الطاولة أو من شاشة الفواتير)
+async function resumeOpenOrder(orderId) {
+  try {
+    const o = await api('/orders/' + orderId);
+    if (o.status !== 'open') return toast(L('الفاتورة لم تعد مفتوحة', 'Tab is no longer open'), 'warn');
+    CART = o.items.map(i => ({ oi_id: i.id, product_id: i.product_id, name: i.name_ar, price: i.price, cost: i.cost,
+      image: (POS_PRODUCTS.find(p => p.id === i.product_id) || {}).image || '', qty: i.qty, note: i.note || '' }));
+    POS_STATE.type = 'dine_in'; POS_STATE.table_id = o.table_id || ''; POS_STATE.guests = o.guests || 1;
+    POS_STATE.waiter_id = o.waiter_id || ''; POS_STATE.discount = o.discount || 0;
+    POS_STATE.customer = o.customer_id ? { id: o.customer_id, name_ar: o.customer_name, points: o.customer_points || 0 } : null;
+    POS_STATE.open_order = { id: o.id, invoice_no: o.invoice_no };
+    if (location.hash === '#/pos') renderCart(); else location.hash = '#/pos';
+    toast(`🟠 ${L('جارٍ استكمال', 'Resuming')} ${o.invoice_no}`);
+  } catch (e) { toast(e.message, 'err'); }
 }
 function orderPayload(status) {
   return {
-    items: CART.map(c => ({ product_id: c.product_id, qty: c.qty, note: c.note || null })),
+    items: CART.map(c => ({ product_id: c.product_id, qty: c.qty, note: c.note || null, oi_id: c.oi_id || null })),
     order_type: POS_STATE.type, table_id: POS_STATE.type === 'dine_in' ? (POS_STATE.table_id || null) : null,
     guests: POS_STATE.guests, waiter_id: POS_STATE.waiter_id || null, discount: POS_STATE.discount || 0, status,
     customer_id: POS_STATE.customer?.id || null,
+    order_id: POS_STATE.open_order?.id || null,   // استكمال فاتورة مفتوحة → تحديث بدل إنشاء
   };
 }
 // هل نظام النقاط مفعّل؟
@@ -635,7 +696,7 @@ async function sendToKitchen() {
     toast(t('أُرسل للمطبخ — ') + o.invoice_no); clearCart(); refreshKDSBadge();
   } catch (e) { toast(e.message, 'err'); }
 }
-function clearCart() { CART = []; POS_STATE.discount = 0; POS_STATE.table_id = ''; POS_STATE.customer = null; renderCart(); }
+function clearCart() { CART = []; POS_STATE.discount = 0; POS_STATE.table_id = ''; POS_STATE.customer = null; POS_STATE.open_order = null; renderCart(); }
 
 // نافذة الدفع — نقدي أو انستاباي (حسب طرق الدفع المفعّلة)
 function payMethodsHTML(selId) {
@@ -964,14 +1025,16 @@ async function openOrder(id) {
       ${hasDue ? `<div class="sumline"><span>${t('المتبقي')}</span><span class="t-num" style="color:var(--red)">${money(remaining)}</span></div>` : ''}
       ${(o.payments || []).map(p => `<div class="sumline" style="font-size:12.5px"><span>↳ ${t('دفعة')} ${dt(p.created_at)} (${esc(p.method_name || '')})</span><span class="t-num">${money(p.amount)}</span></div>`).join('')}` : ''}
     <div class="modal-actions">
-      ${o.status !== 'cancelled' && (o.status !== 'paid' || ME.role_key === 'admin') ? `<button class="btn btn-danger" id="o-cancel">${t('إلغاء الطلب')}</button>` : ''}
+      ${o.status !== 'cancelled' && (o.status !== 'paid' || ME.role_key === 'admin') && hasPerm('orders.cancel') ? `<button class="btn btn-danger" id="o-cancel">${t('إلغاء الطلب')}</button>` : ''}
       ${o.status === 'paid' && ME.role_key === 'admin' ? `<button class="btn btn-sand" id="o-edit">✏️ ${t('تعديل الفاتورة (أدمن)')}</button>` : ''}
       ${o.status === 'paid' && ME.role_key === 'admin' ? `<button class="btn btn-ghost" id="o-return">↩️ ${t('مرتجع')}</button>` : ''}
-      ${hasDue ? `<button class="btn btn-sand" id="o-settle">💰 ${t('سداد المتبقي')}</button>` : ''}
+      ${hasDue && hasPerm('orders.settle') ? `<button class="btn btn-sand" id="o-settle">💰 ${t('سداد المتبقي')}</button>` : ''}
+      ${o.status === 'open' && o.source !== 'qr' && o.order_type === 'dine_in' && hasPerm('pos.draft') ? `<button class="btn btn-primary" id="o-resume">▶️ ${L('استكمال في نقطة البيع', 'Resume in POS')}</button>` : ''}
       <button class="btn btn-ghost" id="o-print">${t('🖨️ طباعة')}</button>
-      ${o.status !== 'paid' && o.status !== 'cancelled' ? `<button class="btn btn-primary" id="o-pay">${t('💵 دفع')}</button>` : ''}
+      ${o.status !== 'paid' && o.status !== 'cancelled' && hasPerm('orders.pay') ? `<button class="btn btn-primary" id="o-pay">${t('💵 دفع')}</button>` : ''}
     </div>`, 'wide');
   $('#o-print', m).onclick = () => printReceipt(o);
+  const rsb = $('#o-resume', m); if (rsb) rsb.onclick = () => { m.remove(); resumeOpenOrder(o.id); };
   const pb = $('#o-pay', m); if (pb) pb.onclick = () => { m.remove(); payExisting(o); };
   const eb = $('#o-edit', m); if (eb) eb.onclick = () => { m.remove(); editPaidOrder(o); };
   const sb = $('#o-settle', m); if (sb) sb.onclick = () => { m.remove(); settleOrder(o, route); };
@@ -1047,18 +1110,24 @@ function stationScreen(view, station) {
   const ep = isKitchen ? '/kds' : '/bar';
   const title = isKitchen ? t('شاشة المطبخ') : t('شاشة البار');
   const icon = isKitchen ? '👨‍🍳' : '🍹';
+  let tab = 'live';   // live = الجارية | done = تم التقديم (مراجعة)
   const render = async () => {
-    const orders = await api(ep);
-    view.innerHTML = `<div class="page-head"><div><h2>${icon} ${title}</h2><div class="crumb">${t('الطلبات الجارية — اضغط على الصنف لتغيير حالته')}</div></div>
+    const orders = await api(ep + (tab === 'done' ? '?done=1' : ''));
+    view.innerHTML = `<div class="page-head"><div><h2>${icon} ${title}</h2><div class="crumb">${tab === 'live' ? t('الطلبات الجارية — اضغط على الصنف لتغيير حالته') : L('فواتير تم تقديمها بالكامل — للمراجعة فقط', 'Fully served orders — review only')}</div></div>
       <div class="head-actions"><button class="btn btn-sand" id="st-req">${t('+ طلب شراء')}</button><button class="btn btn-ghost" id="kds-refresh">${t('🔄 تحديث')}</button></div></div>
-      <div class="kds-grid">${orders.map(o => `<div class="kds-card">
+      <div class="cat-chips" style="margin-bottom:14px">
+        <button class="cat-chip ${tab === 'live' ? 'active' : ''}" data-tab="live">🔥 ${L('الجارية', 'Active')}</button>
+        <button class="cat-chip ${tab === 'done' ? 'active' : ''}" data-tab="done">✅ ${L('تم التقديم', 'Served')}</button>
+      </div>
+      <div class="kds-grid">${orders.map(o => `<div class="kds-card ${tab === 'done' ? 'kds-done' : ''}">
         <div class="kh"><span class="inv">${esc(o.invoice_no)} ${LL(TYPE, o.order_type)}</span><span class="ago">${esc(o.table_name || '')} • ${ago(o.created_at)}</span></div>
-        ${o.items.map(i => `<div class="kds-item ${i.kds_status === 'served' || i.kds_status === 'ready' ? 'done' : ''}" data-i="${i.id}" data-s="${i.kds_status}">
+        ${o.items.map(i => `<div class="kds-item ${i.kds_status === 'served' || i.kds_status === 'ready' ? 'done' : ''}" ${tab === 'live' ? `data-i="${i.id}" data-s="${i.kds_status}"` : ''}>
           <div class="ki-nm">${i.qty}× ${esc(i.name_ar)}${i.note ? `<small>↳ ${esc(i.note)}</small>` : ''}</div>${stBadge(i.kds_status)}</div>`).join('')}
-        </div>`).join('') || `<div class="card"><div class="empty">${t('لا طلبات في المطبخ حالياً 🎉')}</div></div>`}</div>`;
+        </div>`).join('') || `<div class="card"><div class="empty">${tab === 'live' ? t('لا طلبات في المطبخ حالياً 🎉') : L('لا فواتير مُقدَّمة بعد', 'No served orders yet')}</div></div>`}</div>`;
     $('#kds-refresh').onclick = render;
     $('#st-req').onclick = () => openPurchaseRequest();
-    $$('.kds-item').forEach(it => it.onclick = async () => {
+    $$('[data-tab]', view).forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+    $$('.kds-item[data-i]').forEach(it => it.onclick = async () => {
       const flow = { new: 'preparing', preparing: 'ready', ready: 'served', served: 'served' };
       await api(`/order-items/${it.dataset.i}/status`, { method: 'POST', body: { status: flow[it.dataset.s] } });
       render(); refreshKDSBadge();
@@ -1946,10 +2015,62 @@ ROUTES.reports = async (view) => {
 // ===================================================================
 //  الموظفون
 // ===================================================================
+// ===================================================================
+//  كتالوج الصلاحيات — مجمّع بالشاشات، لكل شاشة "عرض" + إجراءات دقيقة
+// ===================================================================
+const PERM_CATALOG = [
+  { g: 'نقطة البيع', ge: 'Point of Sale', perms: [['pos.view', 'عرض الشاشة', 'View'], ['pos.create', 'إنشاء فاتورة', 'Create invoice'], ['pos.draft', 'حفظ مؤقت (فاتورة مفتوحة)', 'Save open tab'], ['pos.discount', 'تطبيق خصم', 'Apply discount'], ['pos.pay_credit', 'بيع آجل / جزئي', 'Credit / partial sale']] },
+  { g: 'مراجعة الفواتير', ge: 'Orders', perms: [['orders.view', 'عرض الفواتير', 'View'], ['orders.pay', 'تحصيل فاتورة', 'Collect payment'], ['orders.cancel', 'إلغاء فاتورة', 'Cancel invoice'], ['orders.settle', 'سداد آجل', 'Settle credit']] },
+  { g: 'طلبات الطاولات والدليفري', ge: 'QR & Delivery', perms: [['qrorders.view', 'عرض طلبات الطاولات', 'View table orders'], ['qrorders.accept', 'قبول/رفض طلبات الطاولات', 'Accept/reject'], ['delivery.view', 'عرض طلبات الدليفري', 'View delivery'], ['delivery.accept', 'قبول/رفض الدليفري', 'Accept/reject delivery']] },
+  { g: 'المطبخ والبار', ge: 'Kitchen & Bar', perms: [['kds.view', 'شاشة المطبخ', 'Kitchen display'], ['bar.view', 'شاشة البار', 'Bar display']] },
+  { g: 'الورديات والعملاء', ge: 'Shifts & Customers', perms: [['shifts.view', 'الورديات والعهدة', 'Shifts'], ['shifts.close', 'تقفيل وردية', 'Close shift'], ['customers.view', 'عرض العملاء', 'View customers'], ['customers.edit', 'إضافة/تعديل عميل', 'Edit customers']] },
+  { g: 'المخزون والمشتريات', ge: 'Inventory & Purchasing', perms: [['inventory.view', 'المخزون', 'Inventory'], ['purchases.view', 'المشتريات', 'Purchases'], ['waste.view', 'التوالف والهدر', 'Waste'], ['stockcount.view', 'الجرد', 'Stock count'], ['requests.view', 'طلبات الشراء', 'Purchase requests'], ['requests.create', 'إنشاء طلب شراء', 'Create request'], ['barcodes.view', 'طباعة باركود', 'Barcodes']] },
+  { g: 'المالية', ge: 'Finance', perms: [['treasury.view', 'الخزينة', 'Treasury'], ['vouchers.view', 'سندات قبض وصرف', 'Vouchers'], ['parties.view', 'الأطراف العامة', 'Parties'], ['expenses.view', 'المصروفات', 'Expenses'], ['returns.view', 'المرتجعات', 'Returns'], ['points.view', 'نقاط الولاء', 'Points']] },
+  { g: 'الإدارة والتقارير', ge: 'Management', perms: [['dashboard.view', 'لوحة التحكم', 'Dashboard'], ['products.view', 'الأصناف والوصفات', 'Products'], ['reports.view', 'التقارير', 'Reports'], ['tables.view', 'الطاولات و QR', 'Tables & QR'], ['shop.view', 'متجر العميل أونلاين', 'Online shop'], ['notifications.view', 'الإشعارات', 'Notifications'], ['staff.view', 'الموظفون', 'Staff'], ['config.view', 'الإعدادات', 'Settings'], ['backup.view', 'النسخ الاحتياطي', 'Backup']] },
+];
+// محرّر مصفوفة صلاحيات الأدوار (أدمن فقط)
+async function editRolePermissions() {
+  const roles = (await api('/roles')).filter(r => r.key !== 'admin');
+  let cur = roles[0];
+  const parse = (r) => { try { return new Set(JSON.parse(r.permissions || '[]')); } catch { return new Set(); } };
+  let sel = parse(cur);
+  const m = modal(`<h3>🛡️ ${L('صلاحيات الأدوار', 'Role permissions')}</h3>
+    <p style="color:var(--text2);font-size:13px;margin-bottom:10px">${L('حدّد بالـ ✓ ما يستطيع كل دور رؤيته وفعله. الأدمن يملك كل الصلاحيات دائماً.', 'Tick what each role can see and do. Admin always has everything.')}</p>
+    <div class="cat-chips" id="rp-tabs">${roles.map((r, i) => `<button class="cat-chip ${i === 0 ? 'active' : ''}" data-r="${r.id}">${esc(r.name_ar)}</button>`).join('')}</div>
+    <div id="rp-body" style="max-height:55vh;overflow:auto;margin-top:8px"></div>
+    <div class="modal-actions"><button class="btn btn-ghost" id="rp-x">${t('إغلاق')}</button><button class="btn btn-primary" id="rp-save">${t('💾 حفظ الصلاحيات')}</button></div>`, 'wide');
+  const draw = () => {
+    $('#rp-body', m).innerHTML = PERM_CATALOG.map(gr => `<div class="perm-group">
+      <div class="pg-head"><label><input type="checkbox" class="pg-all" data-g="${esc(gr.g)}" ${gr.perms.every(p => sel.has(p[0])) ? 'checked' : ''}> <b>${L(gr.g, gr.ge)}</b></label></div>
+      <div class="pg-perms">${gr.perms.map(p => `<label class="rfield"><input type="checkbox" data-p="${p[0]}" ${sel.has(p[0]) ? 'checked' : ''}> ${L(p[1], p[2])}</label>`).join('')}</div>
+    </div>`).join('');
+    $$('#rp-body [data-p]', m).forEach(c => c.onchange = () => { c.checked ? sel.add(c.dataset.p) : sel.delete(c.dataset.p); draw(); });
+    $$('#rp-body .pg-all', m).forEach(c => c.onchange = () => {
+      const gr = PERM_CATALOG.find(x => x.g === c.dataset.g);
+      gr.perms.forEach(p => c.checked ? sel.add(p[0]) : sel.delete(p[0]));
+      draw();
+    });
+  };
+  draw();
+  $$('#rp-tabs .cat-chip', m).forEach(b => b.onclick = () => {
+    cur.permissions = JSON.stringify([...sel]);   // احتفظ بالتعديل غير المحفوظ محلياً عند التنقل
+    cur = roles.find(r => r.id === +b.dataset.r); sel = parse(cur);
+    $$('#rp-tabs .cat-chip', m).forEach(x => x.classList.toggle('active', x === b)); draw();
+  });
+  $('#rp-x', m).onclick = () => m.remove();
+  $('#rp-save', m).onclick = async () => {
+    cur.permissions = JSON.stringify([...sel]);
+    try {
+      for (const r of roles) await api(`/roles/${r.id}/permissions`, { method: 'PUT', body: { permissions: JSON.parse(r.permissions || '[]') } });
+      m.remove(); toast(L('حُفظت الصلاحيات ✅ — تسري عند تسجيل الدخول التالي للمستخدمين', 'Permissions saved ✅ — apply on users\' next login'));
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+
 ROUTES.staff = async (view) => {
   const [staff, roles] = await Promise.all([api('/staff'), api('/roles')]);
   view.innerHTML = `<div class="page-head"><div><h2>👥 ${t('الموظفون')}</h2><div class="crumb">${t('إضافة الموظفين وتحديد أدوارهم وصلاحياتهم')}</div></div>
-    <div class="head-actions"><button class="btn btn-primary" id="s-new">${t('+ موظف جديد')}</button></div></div>
+    <div class="head-actions"><button class="btn btn-sand" id="s-perms">🛡️ ${L('صلاحيات الأدوار', 'Role permissions')}</button><button class="btn btn-primary" id="s-new">${t('+ موظف جديد')}</button></div></div>
     <div class="card"><div class="t-wrap"><table><thead><tr><th>${t('الاسم')}</th><th>${t('البريد')}</th><th>${t('الدور')}</th><th>PIN</th><th>${t('الحالة')}</th><th></th></tr></thead><tbody>
     ${staff.map(u => `<tr><td><b>${esc(u.full_name)}</b></td><td style="color:var(--text2)">${esc(u.email)}</td><td><span class="chip">${esc(u.role_name)}</span></td><td>${esc(u.pin || '—')}</td><td>${u.is_active ? `<span class="chip ok">${t('مفعّل')}</span>` : `<span class="chip low">${t('موقوف')}</span>`}</td><td><button class="btn btn-ghost btn-sm" data-u="${u.id}">${t('تعديل')}</button></td></tr>`).join('')}
     </tbody></table></div></div>`;
@@ -1972,6 +2093,7 @@ ROUTES.staff = async (view) => {
     };
   };
   $('#s-new').onclick = () => form(null);
+  $('#s-perms').onclick = editRolePermissions;
   $$('#view [data-u]', view).forEach(b => b.onclick = () => form(staff.find(u => u.id === +b.dataset.u)));
 };
 

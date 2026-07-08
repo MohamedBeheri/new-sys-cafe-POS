@@ -401,6 +401,25 @@ html[data-theme="dark"] tbody tr:hover{background:#132e35}
 .type-tabs button.active{background:var(--sea-grad)}
 
 /* ---------- شريط العميل في السلة ---------- */
+/* مصفوفة صلاحيات الأدوار */
+.perm-group{border:1.5px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:10px;background:var(--surface2)}
+.perm-group .pg-head{font-size:14px;margin-bottom:8px}
+.perm-group .pg-head input{width:auto;margin-inline-end:6px}
+.perm-group .pg-perms{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px}
+/* بطاقة فاتورة مُقدَّمة (مراجعة فقط) */
+.kds-card.kds-done{opacity:.75}
+.kds-card.kds-done .kds-item{cursor:default}
+/* صورة مصغرة لصنف داخل السلة */
+.ci-thumb{width:26px;height:26px;border-radius:7px;object-fit:cover;vertical-align:middle;display:inline-block}
+span.ci-thumb{width:auto;height:auto;font-size:16px}
+/* بانر الفاتورة المفتوحة المُستأنَفة + خانة الخصم المباشرة */
+.open-banner{display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;border-radius:10px;
+  background:var(--amber-bg);color:var(--amber);font-size:13px;font-weight:700;border:1.5px dashed var(--amber)}
+.open-banner b{direction:ltr}
+.open-banner button{margin-inline-start:auto;background:none;border:none;color:var(--amber);font-weight:900;cursor:pointer;font-size:14px}
+.disc-wrap{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--text2)}
+.disc-wrap input{width:76px;padding:5px 8px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);text-align:center;font-weight:700}
+.disc-wrap input:focus{outline:none;border-color:var(--sea)}
 .cust-row{display:flex;align-items:center;gap:7px;margin-top:10px}
 .cust-pick{flex:1;display:flex;align-items:center;gap:8px;padding:9px 12px;border:1.5px dashed var(--border);
   border-radius:11px;background:var(--surface2);color:var(--text2);font-size:13px;font-weight:600;transition:.15s;text-align:start}
@@ -692,6 +711,52 @@ html[data-theme="dark"] .topbar{box-shadow:0 2px 12px rgba(0,0,0,.25)}
   html[dir="ltr"] .sidebar{right:auto;left:0;transform:translateX(-100%)}
   .sidebar.open{transform:translateX(0)!important;box-shadow:-8px 0 40px rgba(0,0,0,.28)}
   html[dir="ltr"] .sidebar.open{box-shadow:8px 0 40px rgba(0,0,0,.28)}
+}
+
+/* طبقة تعتيم خلف السايدبار على الموبايل — تُغلق القائمة بالضغط خارجها */
+.sb-overlay{display:none}
+@media(max-width:900px){
+  .sb-overlay.show{display:block;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:55;animation:fade .15s}
+}
+
+/* ---------- تحسينات الموبايل الشاملة (≤640px) ---------- */
+@media(max-width:640px){
+  /* نوافذ منبثقة بعرض الشاشة تقريباً وحواف أصغر */
+  .modal-bg{padding:8px;align-items:flex-end}
+  .modal{max-width:100%;padding:18px 16px;border-radius:18px 18px 12px 12px;max-height:94dvh}
+  .modal.wide,.modal.xwide{max-width:100%}
+  /* رؤوس الصفحات والأزرار تلتف بدل ما تُقص */
+  .page-head{flex-direction:column;align-items:stretch;gap:10px}
+  .page-head h2{font-size:18px}
+  .head-actions{display:flex;flex-wrap:wrap;gap:8px}
+  .head-actions .btn{flex:1;min-width:130px;justify-content:center}
+  .toolbar{gap:7px}
+  .toolbar input,.toolbar select{min-width:0;flex:1}
+  /* KPI بطاقات أصغر بعمودين */
+  .kpi-grid{grid-template-columns:repeat(2,1fr);gap:10px}
+  .kpi .val{font-size:20px}
+  /* نقطة البيع: منتجات فوق وسلة تحت بارتفاع مريح */
+  .pos{gap:12px}
+  .prod-grid{grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+  .cart{max-height:none}
+  .cart-meta{flex-wrap:wrap}
+  .cart-meta select,.cart-meta input{flex:1;min-width:110px}
+  .type-tabs button{font-size:12px;padding:8px 6px}
+  .cart-actions{flex-direction:column}
+  .cart-actions .btn{width:100%}
+  /* الجداول تلف أفقياً داخل إطارها (t-wrap فيها overflow-x بالفعل) */
+  th,td{padding:8px 8px;font-size:12.5px;white-space:nowrap}
+  /* شاشات المطبخ/البار عمود واحد */
+  .kds-grid{grid-template-columns:1fr}
+  /* مصفوفة الصلاحيات عمود واحد */
+  .perm-group .pg-perms{grid-template-columns:1fr}
+  /* التقارير: القائمة الجانبية فوق المحتوى */
+  .rep-layout{grid-template-columns:1fr}
+  .rep-list{position:static;display:flex;overflow-x:auto;gap:6px;padding:8px}
+  .rep-list .rep-item{white-space:nowrap;flex-shrink:0;width:auto;margin:0}
+  .rep-list-h{display:none}
+  /* إدخالات أكبر قليلاً لمنع زوم iOS التلقائي */
+  input,select,textarea{font-size:16px}
 }
 
 /* منع التمرير الأفقي على الموبايل */

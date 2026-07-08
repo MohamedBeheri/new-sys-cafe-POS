@@ -27,13 +27,18 @@ function auth(req, res, next) {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   const sess = token && get('SELECT * FROM sessions WHERE token=?', token);
   if (!sess) return res.status(401).json({ error: 'غير مصرح — سجّل الدخول' });
-  const u = get(`SELECT u.*, r.key role_key, r.name_ar role_name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?`, sess.user_id);
+  const u = get(`SELECT u.*, r.key role_key, r.name_ar role_name, r.permissions role_perms FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?`, sess.user_id);
   if (!u || !u.is_active) return res.status(401).json({ error: 'الحساب غير مفعّل' });
+  try { u.perms = JSON.parse(u.role_perms || '[]'); } catch { u.perms = []; }
   req.user = u; next();
 }
 const requireRole = (...keys) => (req, res, next) =>
   keys.includes(req.user.role_key) ? next() : res.status(403).json({ error: 'هذا الإجراء غير متاح لدورك' });
 const admin = requireRole('admin');
+// صلاحيات دقيقة: الأدمن يتجاوز دائماً، الباقي حسب مصفوفة صلاحيات دوره
+const hasPerm = (user, key) => user.role_key === 'admin' || (user.perms || []).includes(key);
+const requirePerm = (key) => (req, res, next) =>
+  hasPerm(req.user, key) ? next() : res.status(403).json({ error: 'ليست لديك صلاحية: ' + key });
 // إشعار: لمستخدم محدد أو لكل من يحمل دوراً معيناً
 function notify({ user_id = null, role_key = null, type = 'system', icon = '🔔', title, body = null, ref_type = null, ref_id = null }) {
   run('INSERT INTO notifications(user_id,role_key,type,icon,title,body,ref_type,ref_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)',
@@ -199,7 +204,11 @@ app.post('/api/login', (req, res) => {
   run('INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)', token, u.id, nowISO());
   res.json({ token, user: me(u.id) });
 });
-const me = (id) => get(`SELECT u.id,u.full_name,u.email,u.pin,r.key role_key,r.name_ar role_name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?`, id);
+const me = (id) => {
+  const u = get(`SELECT u.id,u.full_name,u.email,u.pin,r.key role_key,r.name_ar role_name,r.permissions role_perms FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?`, id);
+  if (u) { try { u.perms = JSON.parse(u.role_perms || '[]'); } catch { u.perms = []; } delete u.role_perms; }
+  return u;
+};
 app.post('/api/logout', auth, (req, res) => { run('DELETE FROM sessions WHERE token=?', (req.headers.authorization || '').replace('Bearer ', '')); res.json({ ok: true }); });
 app.get('/api/me', auth, (req, res) => res.json(me(req.user.id)));
 
@@ -377,6 +386,11 @@ app.post('/api/orders', auth, (req, res) => {
   const tendered = pay ? (+b.paid_cash || 0) : 0;
   const received = pay ? Math.min(tendered, grandTotal) : 0;
   const remaining = pay ? +(grandTotal - received).toFixed(2) : grandTotal;
+  // إنفاذ الصلاحيات الدقيقة (قبل باقي التحققات حتى تكون رسالة الرفض صريحة)
+  if (!hasPerm(req.user, 'pos.create')) return res.status(403).json({ error: 'ليست لديك صلاحية إنشاء فاتورة' });
+  if (discount > 0 && !hasPerm(req.user, 'pos.discount')) return res.status(403).json({ error: 'ليست لديك صلاحية تطبيق خصم' });
+  if (pay && remaining > 0 && !hasPerm(req.user, 'pos.pay_credit')) return res.status(403).json({ error: 'ليست لديك صلاحية البيع الآجل/الجزئي' });
+  if (!pay && b.status !== 'confirmed' && !hasPerm(req.user, 'pos.draft')) return res.status(403).json({ error: 'ليست لديك صلاحية حفظ فاتورة مفتوحة' });
   if (pay && remaining > 0 && !customerId)
     return res.status(400).json({ error: 'البيع الآجل/الجزئي يتطلب اختيار عميل' });
   const payStatus = !pay ? 'unpaid' : (remaining <= 0 ? 'paid' : (received > 0 ? 'partial' : 'credit'));
@@ -384,20 +398,54 @@ app.post('/api/orders', auth, (req, res) => {
   const cfg = pointsCfg();
   const earned = (pay && cfg.enabled && customerId) ? +(grandTotal * cfg.perCur).toFixed(2) : 0;
 
+  // فاتورة مفتوحة مُستأنَفة: b.order_id → نحدّث نفس الفاتورة بدل إنشاء جديدة
+  const existing = b.order_id ? get('SELECT * FROM orders WHERE id=?', b.order_id) : null;
+  if (b.order_id && (!existing || existing.status !== 'open'))
+    return res.status(400).json({ error: 'الفاتورة المفتوحة غير موجودة أو أُغلقت بالفعل' });
+
   const out = tx(() => {
-    const oid = run(`INSERT INTO orders(invoice_no,order_type,table_id,guests,waiter_id,status,subtotal,discount,tax,tip,total,cost_total,payment_method_id,paid_cash,change_due,cashier_id,note,created_at,paid_at,
-      customer_id,paid_amount,payment_status,shift_id,points_earned,points_used,points_discount,tax_detail)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      genInvoiceNo(), b.order_type || 'dine_in', b.table_id || null, b.guests || 1, b.waiter_id || null,
-      pay ? 'paid' : (b.status === 'confirmed' ? 'confirmed' : 'open'),
-      tot.subtotal, discount, tot.tax, tip, grandTotal, tot.cost,
-      pay ? (b.payment_method_id || null) : null, tendered,
-      pay ? +((tendered - grandTotal) > 0 ? (tendered - grandTotal) : 0).toFixed(2) : 0,
-      req.user.id, b.note || null, t, pay ? t : null,
-      customerId, received, payStatus, shift?.id || null, earned, redeem.points, redeem.discount,
-      JSON.stringify(tot.taxes)).lastInsertRowid;
-    prepared.forEach(p => run('INSERT INTO order_items(order_id,product_id,name_ar,qty,price,cost,note) VALUES(?,?,?,?,?,?,?)',
-      oid, p.product_id, p.name_ar, p.qty, p.price, p.cost, p.note));
+    let oid;
+    if (existing) {
+      oid = existing.id;
+      run(`UPDATE orders SET order_type=?,table_id=?,guests=?,waiter_id=?,status=?,subtotal=?,discount=?,tax=?,tip=?,total=?,cost_total=?,
+        payment_method_id=?,paid_cash=?,change_due=?,cashier_id=?,note=COALESCE(?,note),paid_at=?,
+        customer_id=?,paid_amount=?,payment_status=?,shift_id=COALESCE(?,shift_id),points_earned=?,points_used=?,points_discount=?,tax_detail=? WHERE id=?`,
+        b.order_type || existing.order_type, b.table_id || null, b.guests || 1, b.waiter_id || null,
+        pay ? 'paid' : (b.status === 'confirmed' ? 'confirmed' : 'open'),
+        tot.subtotal, discount, tot.tax, tip, grandTotal, tot.cost,
+        pay ? (b.payment_method_id || null) : null, tendered,
+        pay ? +((tendered - grandTotal) > 0 ? (tendered - grandTotal) : 0).toFixed(2) : 0,
+        req.user.id, b.note || null, pay ? t : null,
+        customerId, received, payStatus, shift?.id || null, earned, redeem.points, redeem.discount,
+        JSON.stringify(tot.taxes), oid);
+      // دمج ذكي للأصناف: الأصناف القديمة (لها oi_id) تُحدَّث بلا مساس بحالة تحضيرها في المطبخ، الجديدة تُضاف، المحذوفة تُزال
+      const keepIds = items.map(i => +i.oi_id || 0).filter(Boolean);
+      all('SELECT id FROM order_items WHERE order_id=?', oid)
+        .filter(r => !keepIds.includes(r.id))
+        .forEach(r => run('DELETE FROM order_items WHERE id=?', r.id));
+      prepared.forEach((p, idx) => {
+        const oiId = +items[idx].oi_id || 0;
+        if (oiId && keepIds.includes(oiId))
+          run('UPDATE order_items SET qty=?, note=?, price=?, cost=? WHERE id=? AND order_id=?', p.qty, p.note, p.price, p.cost, oiId, oid);
+        else
+          run('INSERT INTO order_items(order_id,product_id,name_ar,qty,price,cost,note) VALUES(?,?,?,?,?,?,?)',
+            oid, p.product_id, p.name_ar, p.qty, p.price, p.cost, p.note);
+      });
+    } else {
+      oid = run(`INSERT INTO orders(invoice_no,order_type,table_id,guests,waiter_id,status,subtotal,discount,tax,tip,total,cost_total,payment_method_id,paid_cash,change_due,cashier_id,note,created_at,paid_at,
+        customer_id,paid_amount,payment_status,shift_id,points_earned,points_used,points_discount,tax_detail)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        genInvoiceNo(), b.order_type || 'dine_in', b.table_id || null, b.guests || 1, b.waiter_id || null,
+        pay ? 'paid' : (b.status === 'confirmed' ? 'confirmed' : 'open'),
+        tot.subtotal, discount, tot.tax, tip, grandTotal, tot.cost,
+        pay ? (b.payment_method_id || null) : null, tendered,
+        pay ? +((tendered - grandTotal) > 0 ? (tendered - grandTotal) : 0).toFixed(2) : 0,
+        req.user.id, b.note || null, t, pay ? t : null,
+        customerId, received, payStatus, shift?.id || null, earned, redeem.points, redeem.discount,
+        JSON.stringify(tot.taxes)).lastInsertRowid;
+      prepared.forEach(p => run('INSERT INTO order_items(order_id,product_id,name_ar,qty,price,cost,note) VALUES(?,?,?,?,?,?,?)',
+        oid, p.product_id, p.name_ar, p.qty, p.price, p.cost, p.note));
+    }
     if (pay) {
       backflushOrder(oid);
       if (received > 0) moneyMove({ method_id: b.payment_method_id, amount: received, ref_type: 'order', ref_id: oid,
@@ -432,6 +480,7 @@ app.get('/api/orders', auth, (req, res) => {
   if (req.query.date) { f.push(' AND substr(o.created_at,1,10)=?'); p.push(req.query.date); }
   if (req.query.pay_status) { f.push(' AND o.payment_status=?'); p.push(req.query.pay_status); }
   if (req.query.customer) { f.push(' AND o.customer_id=?'); p.push(req.query.customer); }
+  if (req.query.table) { f.push(' AND o.table_id=?'); p.push(req.query.table); }
   // آجل/جزئي فقط (المتبقي > 0)
   if (req.query.due === '1') f.push(" AND o.status='paid' AND o.payment_status IN('partial','credit')");
   // بحث ذكي: يتجاهل الشرطات/المسافات ويطابق رقم الفاتورة كاملاً أو جزء منه (مثال: "74" أو "0074" أو "INV-2026-0074")، وكذلك اسم الطاولة أو العميل أو رقم الطلب
@@ -515,6 +564,7 @@ app.post('/api/orders/:id/cancel', auth, (req, res) => {
   const o = get('SELECT * FROM orders WHERE id=?', req.params.id);
   if (!o) return res.status(404).json({ error: 'غير موجود' });
   if (o.status === 'paid' && req.user.role_key !== 'admin') return res.status(400).json({ error: 'لا يمكن إلغاء طلب مدفوع — الأدمن فقط' });
+  if (!hasPerm(req.user, 'orders.cancel')) return res.status(403).json({ error: 'ليست لديك صلاحية إلغاء فاتورة' });
   tx(() => {
     if (o.status === 'paid') {
       restockOrder(o.id);   // أدمن يلغي فاتورة مدفوعة → إرجاع المخزون
@@ -568,19 +618,22 @@ app.put('/api/orders/:id', auth, admin, (req, res) => {
 //  شاشة المطبخ (KDS)
 // ===================================================================
 // شاشة محطة (kitchen | bar) — تعرض أصناف المحطة فقط من الطلبات الجارية/المدفوعة
-function stationBoard(station) {
+function stationBoard(station, done = false) {
   // طلبات QR غير المقبولة بعد (source=qr AND open) لا تظهر للمطبخ إلا بعد قبول الكاشير
   const orders = all(`SELECT o.id,o.invoice_no,o.order_type,o.created_at,t.name_ar table_name
     FROM orders o LEFT JOIN tables t ON t.id=o.table_id
     WHERE o.status IN('open','confirmed','paid') AND NOT(o.source='qr' AND o.status='open')
-    ORDER BY o.id DESC LIMIT 60`);
+    ORDER BY o.id DESC LIMIT ${done ? 40 : 60}`);
   orders.forEach(o => o.items = all(`SELECT oi.id,oi.name_ar,oi.qty,oi.note,oi.kds_status, COALESCE(p.station,'bar') station
     FROM order_items oi LEFT JOIN products p ON p.id=oi.product_id
     WHERE oi.order_id=? AND COALESCE(p.station,'bar')=? ORDER BY oi.id`, o.id, station));
-  return orders.filter(o => o.items.length && o.items.some(i => i.kds_status !== 'served')).reverse();
+  // done=true → فواتير المحطة المُقدَّمة بالكامل (للمراجعة)، وإلا الجارية فقط
+  return orders.filter(o => o.items.length && (done
+    ? o.items.every(i => i.kds_status === 'served')
+    : o.items.some(i => i.kds_status !== 'served'))).reverse();
 }
-app.get('/api/kds', auth, (_q, res) => res.json(stationBoard('kitchen')));
-app.get('/api/bar', auth, (_q, res) => res.json(stationBoard('bar')));
+app.get('/api/kds', auth, (req, res) => res.json(stationBoard('kitchen', req.query.done === '1')));
+app.get('/api/bar', auth, (req, res) => res.json(stationBoard('bar', req.query.done === '1')));
 app.post('/api/order-items/:id/status', auth, (req, res) => {
   const valid = ['new', 'preparing', 'ready', 'served'];
   if (!valid.includes(req.body?.status)) return res.status(400).json({ error: 'حالة غير صالحة' });
@@ -2103,7 +2156,17 @@ app.delete('/api/branding/logo', auth, admin, (req, res) => {
 // ===================================================================
 app.get('/api/staff', auth, admin, (_q, res) => res.json(all(`SELECT u.id,u.full_name,u.email,u.pin,u.is_active,r.key role_key,r.name_ar role_name
   FROM users u JOIN roles r ON r.id=u.role_id ORDER BY u.id`)));
-app.get('/api/roles', auth, admin, (_q, res) => res.json(all('SELECT id,key,name_ar FROM roles ORDER BY id')));
+app.get('/api/roles', auth, admin, (_q, res) => res.json(all('SELECT id,key,name_ar,permissions FROM roles ORDER BY id')));
+// تحديث مصفوفة صلاحيات دور — الأدمن فقط، ودور الأدمن نفسه غير قابل للتقييد
+app.put('/api/roles/:id/permissions', auth, admin, (req, res) => {
+  const r = get('SELECT * FROM roles WHERE id=?', req.params.id);
+  if (!r) return res.status(404).json({ error: 'الدور غير موجود' });
+  if (r.key === 'admin') return res.status(400).json({ error: 'دور الأدمن يملك كل الصلاحيات دائماً' });
+  const perms = Array.isArray(req.body?.permissions) ? req.body.permissions.filter(p => typeof p === 'string') : [];
+  run('UPDATE roles SET permissions=? WHERE id=?', JSON.stringify(perms), r.id);
+  logAudit(req.user.id, 'role', r.id, 'update_permissions', { count: perms.length });
+  res.json({ ok: true });
+});
 app.post('/api/staff', auth, admin, (req, res) => {
   const b = req.body || {};
   if (!b.full_name || !b.email || !b.password || !b.role_id) return res.status(400).json({ error: 'الاسم والبريد وكلمة المرور والدور مطلوبة' });
