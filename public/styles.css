@@ -677,7 +677,7 @@ html[data-theme="dark"] .topbar{box-shadow:0 2px 12px rgba(0,0,0,.25)}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tc-actions{display:flex;gap:7px}
 .tc-actions .btn{flex:1}
-.tc-actions .btn:last-child{flex:0 0 auto}
+.tc-actions .btn:nth-last-child(-n+2){flex:0 0 auto}
 .sec-divider{font-size:13px;font-weight:700;color:var(--text3);margin:22px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
 
 /* ---------- الحاسبة ---------- */
