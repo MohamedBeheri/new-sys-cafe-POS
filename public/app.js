@@ -2028,7 +2028,7 @@ ROUTES.reports = async (view) => {
 // ===================================================================
 const PERM_CATALOG = [
   { g: 'نقطة البيع', ge: 'Point of Sale', perms: [['pos.view', 'عرض الشاشة', 'View'], ['pos.create', 'إنشاء فاتورة', 'Create invoice'], ['pos.draft', 'حفظ مؤقت (فاتورة مفتوحة)', 'Save open tab'], ['pos.discount', 'تطبيق خصم', 'Apply discount'], ['pos.pay_credit', 'بيع آجل / جزئي', 'Credit / partial sale']] },
-  { g: 'مراجعة الفواتير', ge: 'Orders', perms: [['orders.view', 'عرض الفواتير', 'View'], ['orders.pay', 'تحصيل فاتورة', 'Collect payment'], ['orders.cancel', 'إلغاء فاتورة', 'Cancel invoice'], ['orders.settle', 'سداد آجل', 'Settle credit']] },
+  { g: 'مراجعة الفواتير', ge: 'Orders', perms: [['orders.view', 'عرض الفواتير', 'View'], ['orders.pay', 'تحصيل فاتورة', 'Collect payment'], ['orders.cancel', 'إلغاء فاتورة', 'Cancel invoice'], ['orders.settle', 'سداد آجل', 'Settle credit'], ['orders.delete', 'حذف فاتورة', 'Delete invoice']] },
   { g: 'طلبات الطاولات والدليفري', ge: 'QR & Delivery', perms: [['qrorders.view', 'عرض طلبات الطاولات', 'View table orders'], ['qrorders.accept', 'قبول/رفض طلبات الطاولات', 'Accept/reject'], ['delivery.view', 'عرض طلبات الدليفري', 'View delivery'], ['delivery.accept', 'قبول/رفض الدليفري', 'Accept/reject delivery']] },
   { g: 'المطبخ والبار', ge: 'Kitchen & Bar', perms: [['kds.view', 'شاشة المطبخ', 'Kitchen display'], ['bar.view', 'شاشة البار', 'Bar display']] },
   { g: 'الورديات والعملاء', ge: 'Shifts & Customers', perms: [['shifts.view', 'الورديات والعهدة', 'Shifts'], ['shifts.close', 'تقفيل وردية', 'Close shift'], ['customers.view', 'عرض العملاء', 'View customers'], ['customers.edit', 'إضافة/تعديل عميل', 'Edit customers']] },
@@ -2078,7 +2078,7 @@ async function editRolePermissions() {
 ROUTES.staff = async (view) => {
   const [staff, roles] = await Promise.all([api('/staff'), api('/roles')]);
   view.innerHTML = `<div class="page-head"><div><h2>👥 ${t('الموظفون')}</h2><div class="crumb">${t('إضافة الموظفين وتحديد أدوارهم وصلاحياتهم')}</div></div>
-    <div class="head-actions"><button class="btn btn-sand" id="s-perms">🛡️ ${L('صلاحيات الأدوار', 'Role permissions')}</button><button class="btn btn-primary" id="s-new">${t('+ موظف جديد')}</button></div></div>
+    <div class="head-actions"><button class="btn btn-sand" id="s-perms">🛡️ ${L('صلاحيات الأدوار', 'Role permissions')}</button><button class="btn btn-sand" id="s-newrole">+ ${L('دور جديد', 'New role')}</button><button class="btn btn-primary" id="s-new">${t('+ موظف جديد')}</button></div></div>
     <div class="card"><div class="t-wrap"><table><thead><tr><th>${t('الاسم')}</th><th>${t('البريد')}</th><th>${t('الدور')}</th><th>PIN</th><th>${t('الحالة')}</th><th></th></tr></thead><tbody>
     ${staff.map(u => `<tr><td><b>${esc(u.full_name)}</b></td><td style="color:var(--text2)">${esc(u.email)}</td><td><span class="chip">${esc(u.role_name)}</span></td><td>${esc(u.pin || '—')}</td><td>${u.is_active ? `<span class="chip ok">${t('مفعّل')}</span>` : `<span class="chip low">${t('موقوف')}</span>`}</td><td><button class="btn btn-ghost btn-sm" data-u="${u.id}">${t('تعديل')}</button></td></tr>`).join('')}
     </tbody></table></div></div>`;
@@ -2102,6 +2102,21 @@ ROUTES.staff = async (view) => {
   };
   $('#s-new').onclick = () => form(null);
   $('#s-perms').onclick = editRolePermissions;
+  $('#s-newrole').onclick = () => {
+    const m = modal(`<h3>${L('دور جديد', 'New role')}</h3>
+      <div class="field"><label>${L('اسم الدور', 'Role name')}</label><input id="nr-name" placeholder="${L('مثلاً: مشرف', 'e.g. Supervisor')}"></div>
+      <div class="field"><label>${L('المفتاح (بالإنجليزية)', 'Key (English)')}</label><input id="nr-key" placeholder="${L('مثلاً: supervisor', 'e.g. supervisor')}"></div>
+      <div class="err" id="nr-e"></div>
+      <div class="modal-actions"><button class="btn btn-ghost" id="nr-x">${t('إلغاء')}</button><button class="btn btn-primary" id="nr-save">${t('حفظ')}</button></div>`);
+    $('#nr-name', m).oninput = () => { if (!$('#nr-key', m).dataset.manual) $('#nr-key', m).value = $('#nr-name', m).value.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^\w]/g, ''); };
+    $('#nr-key', m).oninput = () => { $('#nr-key', m).dataset.manual = '1'; };
+    $('#nr-x', m).onclick = () => m.remove();
+    $('#nr-save', m).onclick = async () => {
+      const name_ar = $('#nr-name', m).value.trim(), key = $('#nr-key', m).value.trim().toLowerCase();
+      if (!name_ar || !key) { $('#nr-e', m).textContent = L('الاسم والمفتاح مطلوبان', 'Name and key are required'); return; }
+      try { await api('/roles', { method: 'POST', body: { name_ar, key } }); m.remove(); toast(L('تم إنشاء الدور ✅', 'Role created ✅')); route(); } catch (e) { $('#nr-e', m).textContent = e.message; }
+    };
+  };
   $$('#view [data-u]', view).forEach(b => b.onclick = () => form(staff.find(u => u.id === +b.dataset.u)));
 };
 

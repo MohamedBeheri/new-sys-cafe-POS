@@ -2172,7 +2172,26 @@ app.delete('/api/branding/logo', auth, admin, (req, res) => {
 app.get('/api/staff', auth, admin, (_q, res) => res.json(all(`SELECT u.id,u.full_name,u.email,u.pin,u.is_active,r.key role_key,r.name_ar role_name
   FROM users u JOIN roles r ON r.id=u.role_id ORDER BY u.id`)));
 app.get('/api/roles', auth, admin, (_q, res) => res.json(all('SELECT id,key,name_ar,permissions FROM roles ORDER BY id')));
-// تحديث مصفوفة صلاحيات دور — الأدمن فقط، ودور الأدمن نفسه غير قابل للتقييد
+app.post('/api/roles', auth, admin, (req, res) => {
+  const b = req.body || {};
+  if (!b.name_ar || !b.key) return res.status(400).json({ error: 'الاسم والمفتاح مطلوبان' });
+  if (get('SELECT 1 v FROM roles WHERE key=?', b.key)) return res.status(400).json({ error: 'المفتاح مستخدم بالفعل' });
+  const perms = Array.isArray(b.permissions) ? b.permissions.filter(p => typeof p === 'string') : [];
+  run('INSERT INTO roles(key,name_ar,permissions) VALUES(?,?,?)', b.key, b.name_ar, JSON.stringify(perms));
+  res.json({ ok: true, id: get('SELECT last_insert_rowid() id').id });
+});
+app.put('/api/roles/:id', auth, admin, (req, res) => {
+  const r = get('SELECT * FROM roles WHERE id=?', req.params.id);
+  if (!r) return res.status(404).json({ error: 'الدور غير موجود' });
+  if (r.key === 'admin') return res.status(400).json({ error: 'دور الأدمن غير قابل للتعديل' });
+  const b = req.body || {};
+  if (b.name_ar) run('UPDATE roles SET name_ar=? WHERE id=?', b.name_ar, r.id);
+  if (b.key && b.key !== r.key) {
+    if (get('SELECT 1 v FROM roles WHERE key=? AND id!=?', b.key, r.id)) return res.status(400).json({ error: 'المفتاح مستخدم بالفعل' });
+    run('UPDATE roles SET key=? WHERE id=?', b.key, r.id);
+  }
+  res.json({ ok: true });
+});
 app.put('/api/roles/:id/permissions', auth, admin, (req, res) => {
   const r = get('SELECT * FROM roles WHERE id=?', req.params.id);
   if (!r) return res.status(404).json({ error: 'الدور غير موجود' });
