@@ -2514,11 +2514,15 @@ async function openStatement(methodId) {
         <span class="chip">${t('رصيد أول المدة')}: ${money(d.opening)}</span>
         <span class="chip ok">${t('رصيد آخر المدة')}: ${money(d.closing)}</span>
       </div>
-      <div class="t-wrap" style="max-height:52vh;overflow:auto"><table><thead><tr><th>${t('الوقت')}</th><th>${t('النوع')}</th><th>${t('البيان')}</th><th>${t('المبلغ')}</th><th>${t('الرصيد بعد')}</th><th>${t('بواسطة')}</th></tr></thead><tbody>
+      <div class="t-wrap" style="max-height:52vh;overflow:auto"><table><thead><tr><th>${t('الوقت')}</th><th>${t('النوع')}</th><th>${t('البيان')}</th><th>${t('المبلغ')}</th><th>${t('الرصيد بعد')}</th><th>${t('بواسطة')}</th><th></th></tr></thead><tbody>
       ${d.rows.map(r => `<tr><td style="color:var(--text3)">${dt(r.created_at)}</td><td>${LL(MMLABEL, r.ref_type)}</td><td>${esc(r.note || '—')}</td>
         <td class="t-num" style="color:${r.amount > 0 ? 'var(--green)' : 'var(--red)'};font-weight:700">${r.amount > 0 ? '+' : ''}${money(r.amount)}</td>
-        <td class="t-num">${money(r.balance)}</td><td>${esc(r.by_name || '—')}</td></tr>`).join('') || `<tr><td colspan="6" class="empty">${t('لا حركات في هذه المدة')}</td></tr>`}
+        <td class="t-num">${money(r.balance)}</td><td>${esc(r.by_name || '—')}</td>
+        <td><button class="btn btn-danger btn-sm" data-mm-del="${r.id}" title="${t('حذف')}">🗑️</button></td></tr>`).join('') || `<tr><td colspan="7" class="empty">${t('لا حركات في هذه المدة')}</td></tr>`}
       </tbody></table></div>`;
+    $$('#sm-body [data-mm-del]', m).forEach(b => b.onclick = () => confirmDialog(L('حذف هذه الحركة من كشف الحساب؟','Delete this movement?'), async () => {
+      try { await api('/treasury/movement/' + b.dataset.mmDel, { method: 'DELETE' }); toast(L('تم حذف الحركة','Movement deleted')); load(); } catch (e) { toast(e.message, 'err'); }
+    }));
   };
   $('#sm-go', m).onclick = load;
   $('#sm-x', m).onclick = () => m.remove();

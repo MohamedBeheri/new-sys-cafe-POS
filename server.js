@@ -1484,6 +1484,13 @@ app.get('/api/treasury/:id/statement', auth, admin, (req, res) => {
   rows.forEach(r => { running = +(running + r.amount).toFixed(2); r.balance = running; });
   res.json({ method: m, opening, closing: running, rows: rows.reverse() });
 });
+app.delete('/api/treasury/movement/:id', auth, admin, (req, res) => {
+  const mv = get('SELECT * FROM money_movements WHERE id=?', req.params.id);
+  if (!mv) return res.status(404).json({ error: 'الحركة غير موجودة' });
+  run('DELETE FROM money_movements WHERE id=?', mv.id);
+  logAudit(req.user.id, 'treasury', mv.id, 'delete_movement', { method_id: mv.method_id, amount: mv.amount, note: mv.note });
+  res.json({ ok: true });
+});
 app.post('/api/treasury/adjust', auth, admin, (req, res) => {
   const b = req.body || {};
   if (!b.method_id || !+b.amount) return res.status(400).json({ error: 'حدد الطريقة والمبلغ' });
