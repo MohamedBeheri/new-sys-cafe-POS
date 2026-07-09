@@ -163,7 +163,7 @@ tbody tr{transition:.12s}tbody tr:hover{background:var(--surface2)}
    نقطة البيع (POS)
    =================================================================== */
 .pos{display:grid;grid-template-columns:1fr 380px;gap:18px;height:calc(100vh - 48px)}
-.pos-menu{display:flex;flex-direction:column;min-width:0}
+.pos-menu{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
 .pos-search{margin-bottom:12px}
 .pos-search input{width:100%;padding:13px 16px;border:1.5px solid var(--border);border-radius:13px;background:var(--surface);font-size:15px}
 .pos-search input:focus{outline:none;border-color:var(--sea);box-shadow:0 0 0 3px var(--sea-light)}
@@ -172,7 +172,7 @@ tbody tr{transition:.12s}tbody tr:hover{background:var(--surface2)}
   background:var(--surface);border:1.5px solid var(--border);font-weight:600;font-size:14px;color:var(--text2);transition:.15s}
 .cat-chip:hover{border-color:var(--sea)}
 .cat-chip.active{background:var(--sea);color:#fff;border-color:var(--sea);box-shadow:0 6px 14px rgba(15,181,186,.32)}
-.prod-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:13px;overflow-y:auto;padding:4px;align-content:start}
+.prod-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:13px;overflow-y:auto;padding:4px;align-content:start;flex:1;min-height:0}
 .prod-card{background:var(--surface);border:1.5px solid var(--border);border-radius:15px;padding:15px 12px;text-align:center;
   cursor:pointer;transition:.13s;position:relative;display:flex;flex-direction:column;gap:5px;min-height:118px;justify-content:center}
 .prod-card:hover{border-color:var(--sea);transform:translateY(-3px);box-shadow:var(--shadow)}
@@ -185,7 +185,7 @@ tbody tr{transition:.12s}tbody tr:hover{background:var(--surface2)}
 /* سلة الطلب */
 .cart{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);
   display:flex;flex-direction:column;overflow:hidden}
-.cart-head{padding:15px 18px;border-bottom:1px solid var(--border)}
+.cart-head{padding:15px 18px;border-bottom:1px solid var(--border);flex-shrink:0}
 .type-tabs{display:flex;gap:6px;background:var(--surface2);padding:4px;border-radius:12px;margin-bottom:12px}
 .type-tabs button{flex:1;padding:9px;border-radius:9px;font-weight:700;font-size:13px;color:var(--text2);transition:.15s}
 .type-tabs button.active{background:var(--sea);color:#fff;box-shadow:var(--shadow)}
@@ -201,7 +201,7 @@ tbody tr{transition:.12s}tbody tr:hover{background:var(--surface2)}
 .qtybox .q{min-width:22px;text-align:center;font-weight:700}
 .ci .ci-pr{font-weight:800;min-width:62px;text-align:end;font-size:13.5px}
 .ci .ci-x{color:var(--text3);font-size:16px}.ci .ci-x:hover{color:var(--red)}
-.cart-foot{padding:14px 18px;border-top:1px solid var(--border);background:var(--surface2)}
+.cart-foot{padding:14px 18px;border-top:1px solid var(--border);background:var(--surface2);flex-shrink:0}
 .sumline{display:flex;justify-content:space-between;font-size:14px;color:var(--text2);margin-bottom:5px}
 .sumline.total{font-size:20px;font-weight:800;color:var(--text);margin:9px 0;border-top:1px dashed var(--border);padding-top:9px}
 .cart-actions{display:flex;gap:9px;margin-top:6px}
@@ -651,9 +651,9 @@ html[data-theme="dark"] .topbar{box-shadow:0 2px 12px rgba(0,0,0,.25)}
 .sb-cust-site:hover{background:rgba(255,255,255,.22)}
 
 /* ---------- بطاقات الخزينة الجديدة ---------- */
-.treasury-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
-.treasury-card{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:18px;
-  box-shadow:var(--shadow);position:relative;overflow:hidden;transition:.18s;display:flex;flex-direction:column;gap:13px}
+.treasury-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+.treasury-card{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:20px;
+  box-shadow:var(--shadow);position:relative;overflow:hidden;transition:.18s;display:flex;flex-direction:column;gap:13px;min-height:300px}
 .treasury-card::before{content:"";position:absolute;inset-inline-start:0;top:0;bottom:0;width:5px}
 .treasury-card.cash::before{background:linear-gradient(var(--green),#0d7a3e)}
 .treasury-card.bank::before{background:linear-gradient(var(--sand),var(--sand-deep))}
