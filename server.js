@@ -506,11 +506,30 @@ app.get('/api/orders/:id', auth, (req, res) => {
   res.json(o);
 });
 
-// حذف فاتورة نهائياً (أدمن فقط)
+// حذف فاتورة نهائياً (أدمن فقط) — يعكس الحركة المالية والمخزون والنقاط
 app.delete('/api/orders/:id', auth, admin, (req, res) => {
   const o = get('SELECT * FROM orders WHERE id=?', req.params.id);
   if (!o) return res.status(404).json({ error: 'الطلب غير موجود' });
+  const shift = openShiftOf(req.user.id);
   tx(() => {
+    if (o.status === 'paid') {
+      restockOrder(o.id);
+      if (o.paid_amount > 0 && o.payment_method_id)
+        moneyMove({ method_id: o.payment_method_id, amount: -o.paid_amount,
+          ref_type: 'order', ref_id: o.id, note: `حذف فاتورة ${o.invoice_no}`,
+          user_id: req.user.id, shift_id: shift?.id || null });
+      const extraPayments = all('SELECT * FROM invoice_payments WHERE invoice_id=?', o.id);
+      for (const ep of extraPayments)
+        moneyMove({ method_id: ep.method_id, amount: -ep.amount,
+          ref_type: 'order', ref_id: o.id, note: `حذف فاتورة ${o.invoice_no} (سداد)`,
+          user_id: req.user.id, shift_id: shift?.id || null });
+      if (o.customer_id && o.points_earned > 0)
+        logPoints(o.customer_id, -o.points_earned, 'manual_remove', 'حذف فاتورة', 'order', o.id, req.user.id);
+      if (o.customer_id && o.points_used > 0)
+        logPoints(o.customer_id, +o.points_used, 'manual_add', 'حذف فاتورة — استرداد نقاط', 'order', o.id, req.user.id);
+    }
+    run('DELETE FROM invoice_payments WHERE invoice_id=?', o.id);
+    run('UPDATE order_items SET product_id=NULL WHERE order_id=?', o.id);
     run('DELETE FROM order_items WHERE order_id=?', o.id);
     run('DELETE FROM orders WHERE id=?', o.id);
   });
@@ -2121,11 +2140,17 @@ app.put('/api/admin/:table/:id', auth, admin, (req, res) => {
   run(`UPDATE ${TBL(req.params.table)} SET ${sets.map(c => c + '=?').join(',')} WHERE id=?`, ...sets.map(c => b[c]), req.params.id);
   res.json({ ok: true });
 });
-// حذف — مسموح للضرائب فقط (لا مراجع خارجية عليها؛ تفاصيلها منسوخة في الطلبات)
 app.delete('/api/admin/:table/:id', auth, admin, (req, res) => {
-  if (req.params.table !== 'taxes') return res.status(403).json({ error: 'الحذف غير متاح لهذا الجدول — عطّله بدلاً من حذفه' });
-  run('DELETE FROM taxes WHERE id=?', req.params.id);
-  res.json({ ok: true });
+  const t = req.params.table, id = req.params.id;
+  if (t === 'taxes') { run('DELETE FROM taxes WHERE id=?', id); return res.json({ ok: true }); }
+  if (t === 'payment-methods') {
+    const used = get('SELECT 1 v FROM orders WHERE payment_method_id=? LIMIT 1', id)
+              || get('SELECT 1 v FROM money_movements WHERE method_id=? LIMIT 1', id);
+    if (used) return res.status(400).json({ error: 'طريقة الدفع مستخدمة في فواتير أو حركات — عطّلها بدلاً من حذفها' });
+    run('DELETE FROM payment_methods WHERE id=?', id);
+    return res.json({ ok: true });
+  }
+  res.status(403).json({ error: 'الحذف غير متاح لهذا الجدول — عطّله بدلاً من حذفه' });
 });
 
 // الإعدادات العامة

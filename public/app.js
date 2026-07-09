@@ -2420,6 +2420,7 @@ ROUTES.treasury = async (view) => {
         <button class="btn btn-primary btn-sm" data-stmt="${mt.id}">📄 ${t('كشف حساب')}</button>
         <button class="btn btn-ghost btn-sm" data-adj-one="${mt.id}">⚖️ ${t('تسوية')}</button>
         <button class="btn btn-ghost btn-sm" data-pm-edit="${mt.id}">✏️</button>
+        <button class="btn btn-danger btn-sm" data-pm-del="${mt.id}">🗑️</button>
       </div>
     </div>`;
   view.innerHTML = `<div class="page-head"><div><h2>🏦 ${t('الخزينة وطرق الدفع')}</h2><div class="crumb">${t('أرصدة كل خزنة لحظياً — كشف حساب وتسوية وإدارة كاملة')}</div></div>
@@ -2467,6 +2468,13 @@ ROUTES.treasury = async (view) => {
   };
   $('#tr-new').onclick = () => pmForm(null);
   $$('#view [data-pm-edit]').forEach(b => b.onclick = () => pmForm(d.methods.find(x => x.id === +b.dataset.pmEdit)));
+  $$('#view [data-pm-del]').forEach(b => b.onclick = () => {
+    const mt = d.methods.find(x => x.id === +b.dataset.pmDel);
+    confirmDialog(L(`هل أنت متأكد من حذف طريقة الدفع "${mt.name_ar}"؟`, `Delete payment method "${mt.name_ar}"?`), async () => {
+      try { await api('/admin/payment-methods/' + mt.id, { method: 'DELETE' }); META = await api('/meta'); toast(L('تم الحذف ✅','Deleted ✅')); route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+  });
 };
 // تسوية رصيد خزنة (إيداع/صرف يدوي)
 function adjustMethod(mt) {
