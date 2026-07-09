@@ -2297,13 +2297,21 @@ ROUTES.config = async (view) => {
     await api('/settings', { method: 'PUT', body: { receipt_fields: JSON.stringify(fields), receipt_extra_lines: $('#st-extra').value } });
     META = await api('/meta'); toast(L('حُفظت إعدادات الفاتورة ✅', 'Receipt settings saved ✅'));
   };
-  $('#btn-reset-fin').onclick = async () => {
-    const msg = L('هذا الإجراء لا يمكن التراجع عنه!\nسيحذف كل الفواتير والمشتريات والمصروفات والحركات المالية.\nالمنتجات والتصنيفات والمخزون لن تتأثر.\n\nاكتب "مسح" للتأكيد:', 'This cannot be undone!\nAll orders, purchases, expenses and financial records will be deleted.\nProducts, categories and inventory will NOT be affected.\n\nType "delete" to confirm:');
-    const ans = prompt(msg);
-    if (ans !== 'مسح' && ans !== 'delete') return;
-    if (!confirm(L('⚠️ تأكيد نهائي: هل أنت متأكد من مسح جميع الحركات المالية؟', '⚠️ Final confirmation: Are you sure you want to delete all financial records?'))) return;
-    await api('/admin/reset-financials', { method: 'POST', body: { confirm: 'DELETE_FINANCIALS' } });
-    toast(t('تم مسح جميع الحركات المالية ✅'));
+  $('#btn-reset-fin').onclick = () => {
+    const m = modal(`<h3 style="color:#e53935">⚠️ ${L('تأكيد مسح الحركات المالية','Confirm financial reset')}</h3>
+      <p style="margin-bottom:12px">${L('هذا الإجراء لا يمكن التراجع عنه! سيحذف كل الفواتير والمشتريات والمصروفات وحركات الخزينة والسندات.\nالمنتجات والتصنيفات والمخزون لن تتأثر.','This cannot be undone! All orders, purchases, expenses, treasury movements and vouchers will be deleted.\nProducts, categories and inventory will NOT be affected.')}</p>
+      <div class="field"><label>${L('اكتب "مسح" للتأكيد','Type "delete" to confirm')}</label><input id="rf-confirm" autocomplete="off"></div>
+      <div class="err" id="rf-e"></div>
+      <div class="modal-actions"><button class="btn btn-ghost" id="rf-x">${t('إلغاء')}</button><button class="btn" id="rf-go" style="background:#e53935;color:#fff">${t('🗑️ مسح نهائي')}</button></div>`);
+    $('#rf-x', m).onclick = () => m.remove();
+    $('#rf-go', m).onclick = async () => {
+      const v = $('#rf-confirm', m).value.trim();
+      if (v !== 'مسح' && v !== 'delete') { $('#rf-e', m).textContent = L('اكتب "مسح" بالضبط','Type "delete" exactly'); return; }
+      try {
+        await api('/admin/reset-financials', { method: 'POST', body: { confirm: 'DELETE_FINANCIALS' } });
+        m.remove(); toast(t('تم مسح جميع الحركات المالية ✅')); route();
+      } catch (e) { $('#rf-e', m).textContent = e.message; }
+    };
   };
   let curK = ADMIN_TABS[0].k;
   const loadTab = async () => {

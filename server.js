@@ -2247,19 +2247,22 @@ app.put('/api/staff/:id', auth, admin, (req, res) => {
 app.post('/api/admin/reset-financials', auth, admin, (req, res) => {
   if (req.body?.confirm !== 'DELETE_FINANCIALS') return res.status(400).json({ error: 'مطلوب تأكيد العملية' });
   tx(() => {
+    run('DELETE FROM invoice_payments');
     run('DELETE FROM order_items');
     run('DELETE FROM orders');
     run('DELETE FROM purchase_items');
     run('DELETE FROM purchases');
     run('DELETE FROM purchase_requests');
     run('DELETE FROM expenses');
+    run('DELETE FROM money_movements');
+    run('DELETE FROM vouchers');
     run('DELETE FROM inventory_transactions');
     run('DELETE FROM waste_log');
     run('DELETE FROM stock_count_items');
     run('DELETE FROM stock_counts');
     run('DELETE FROM audit_log');
     run('DELETE FROM notifications');
-    run("DELETE FROM sqlite_sequence WHERE name IN ('orders','order_items','purchases','purchase_items','expenses','inventory_transactions','waste_log','stock_counts','stock_count_items','audit_log','notifications','purchase_requests')");
+    run("DELETE FROM sqlite_sequence WHERE name IN ('orders','order_items','purchases','purchase_items','expenses','inventory_transactions','waste_log','stock_counts','stock_count_items','audit_log','notifications','purchase_requests','money_movements','vouchers','invoice_payments')");
   });
   logAudit(req.user.id, 'system', 0, 'reset_financials', { by: req.user.email });
   res.json({ ok: true });
