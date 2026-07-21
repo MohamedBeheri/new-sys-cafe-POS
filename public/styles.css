@@ -257,6 +257,11 @@ tbody tr{transition:.12s}tbody tr:hover{background:var(--surface2)}
 /* ---------- شريط فلترة ---------- */
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;align-items:center}
 .toolbar select,.toolbar input{padding:9px 13px;border:1.5px solid var(--border);border-radius:10px;background:var(--surface);font-size:13.5px}
+.toolbar input[type="search"]{flex:1;min-width:200px}
+/* فرز الأعمدة بالنقر على رأس الجدول */
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+th.sortable:hover{color:var(--sea-deep)}
+th.sortable .sort-ind{color:var(--sea);font-size:10px}
 
 /* ---------- التقارير ---------- */
 .rep-layout{display:grid;grid-template-columns:1fr 240px;gap:18px;align-items:start}

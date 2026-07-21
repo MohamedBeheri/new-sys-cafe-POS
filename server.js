@@ -14,7 +14,7 @@ import { seed, migrate } from './db/seed.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 4700;
 const app = express();
-app.use(express.json({ limit: '6mb' }));   // يسمح برفع لوجو مخصص base64
+app.use(express.json({ limit: '32mb' }));   // يسمح برفع لوجو مخصص ونسخ احتياطية base64
 
 // تهيئة تلقائية لقاعدة البيانات عند الإقلاع + ترحيل الميزات الجديدة
 try {
@@ -260,7 +260,7 @@ app.get('/api/dashboard', auth, (req, res) => {
 });
 
 // سلسلة المبيعات/صافي الربح بفلتر مدة (للوحة)
-app.get('/api/dashboard/series', auth, admin, (req, res) => {
+app.get('/api/dashboard/series', auth, requirePerm('dashboard.view'), (req, res) => {
   const days = Math.min(180, Math.max(1, +req.query.days || 14));
   const fromD = localDay(days - 1);
   const sales = all(`SELECT substr(created_at,1,10) d, COALESCE(SUM(total),0) sales, COALESCE(SUM(total-cost_total-tax),0) gross
@@ -1079,7 +1079,7 @@ app.post('/api/stock-counts/:id/close', auth, admin, (req, res) => {
 // ===================================================================
 //  التقارير والحوكمة
 // ===================================================================
-app.get('/api/reports/sales', auth, admin, (req, res) => {
+app.get('/api/reports/sales', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   const summary = get(`SELECT COUNT(*) orders, COALESCE(SUM(total),0) sales, COALESCE(SUM(cost_total),0) cost,
     COALESCE(SUM(tax),0) tax, COALESCE(SUM(discount),0) discount, COALESCE(SUM(tip),0) tip_delivery,
@@ -1109,7 +1109,7 @@ app.get('/api/reports/sales', auth, admin, (req, res) => {
 
 // ---------- تقارير مالية جديدة ----------
 // حركة الخزينة الشاملة (كل الطرق أو طريقة محددة)
-app.get('/api/reports/treasury', auth, admin, (req, res) => {
+app.get('/api/reports/treasury', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   const f = [], p = [from, to];
   if (req.query.method) { f.push(' AND mm.method_id=?'); p.push(req.query.method); }
@@ -1125,7 +1125,7 @@ app.get('/api/reports/treasury', auth, admin, (req, res) => {
 });
 
 // سندات القبض والصرف (تقرير)
-app.get('/api/reports/vouchers', auth, admin, (req, res) => {
+app.get('/api/reports/vouchers', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   const rows = all(`SELECT v.voucher_no, v.kind, v.party_name, v.amount, pm.name_ar method, v.note, v.status, v.created_at, u.full_name by_name
     FROM vouchers v LEFT JOIN payment_methods pm ON pm.id=v.method_id LEFT JOIN users u ON u.id=v.created_by
@@ -1136,7 +1136,7 @@ app.get('/api/reports/vouchers', auth, admin, (req, res) => {
 });
 
 // الفواتير الآجلة والجزئية والمستحقات
-app.get('/api/reports/due', auth, admin, (req, res) => {
+app.get('/api/reports/due', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   const rows = all(`SELECT o.invoice_no, o.total, o.paid_amount, ROUND(o.total-o.paid_amount,2) remaining,
     o.payment_status, o.created_at, c.name_ar customer, c.phone
@@ -1152,7 +1152,7 @@ app.get('/api/reports/due', auth, admin, (req, res) => {
 });
 
 // الورديات (تقرير Z شامل لكل الفترة)
-app.get('/api/reports/shifts', auth, admin, (req, res) => {
+app.get('/api/reports/shifts', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   const rows = all(`SELECT s.*, u.full_name user_name FROM shifts s JOIN users u ON u.id=s.user_id
     WHERE s.opened_at>=? AND s.opened_at<=? ORDER BY s.id DESC`, from, to);
@@ -1163,7 +1163,7 @@ app.get('/api/reports/shifts', auth, admin, (req, res) => {
 });
 
 // المرتجعات الشاملة (مبيعات + مشتريات)
-app.get('/api/reports/returns', auth, admin, (req, res) => {
+app.get('/api/reports/returns', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   const sales = all(`SELECT sr.return_no, o.invoice_no orig, sr.total, sr.reason, sr.created_at, c.name_ar customer, u.full_name by_name
     FROM sales_returns sr LEFT JOIN orders o ON o.id=sr.order_id LEFT JOIN customers c ON c.id=sr.customer_id
@@ -1179,7 +1179,7 @@ app.get('/api/reports/returns', auth, admin, (req, res) => {
 });
 
 // المصروفات (تقرير)
-app.get('/api/reports/expenses', auth, admin, (req, res) => {
+app.get('/api/reports/expenses', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   const rows = all(`SELECT e.spent_at, e.amount, e.note, ec.name_ar category, ec.icon, pm.name_ar method, u.full_name by_name
     FROM expenses e LEFT JOIN expense_categories ec ON ec.id=e.category_id
@@ -1195,7 +1195,7 @@ app.get('/api/reports/expenses', auth, admin, (req, res) => {
 });
 
 // نقاط الولاء (تقرير)
-app.get('/api/reports/points', auth, admin, (req, res) => {
+app.get('/api/reports/points', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   const rows = all(`SELECT pl.*, c.name_ar customer, u.full_name by_name FROM points_log pl
     JOIN customers c ON c.id=pl.customer_id LEFT JOIN users u ON u.id=pl.created_by
@@ -1210,7 +1210,7 @@ app.get('/api/reports/points', auth, admin, (req, res) => {
 });
 
 // اليومية المالية الموحّدة (Journal): كل الحركات المالية موحدة في تقرير واحد
-app.get('/api/reports/journal', auth, admin, (req, res) => {
+app.get('/api/reports/journal', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   // موحد: مبيعات + سندات + مصروفات + مشتريات + سدادات + مرتجعات
   const items = [];
@@ -1245,7 +1245,7 @@ app.get('/api/reports/journal', auth, admin, (req, res) => {
 });
 
 // تقرير العملاء (رصيد كل عميل + نقاطه + مشترياته)
-app.get('/api/reports/customers', auth, admin, (_q, res) => {
+app.get('/api/reports/customers', auth, requirePerm('reports.view'), (_q, res) => {
   const rows = all(`SELECT c.name_ar, c.phone, c.points,
     (SELECT COUNT(*) FROM orders o WHERE o.customer_id=c.id AND o.status='paid') orders_count,
     (SELECT COALESCE(SUM(o.total),0) FROM orders o WHERE o.customer_id=c.id AND o.status='paid') total_sales,
@@ -1258,7 +1258,7 @@ app.get('/api/reports/customers', auth, admin, (_q, res) => {
     totalPoints: +rows.reduce((s, r) => s + r.points, 0).toFixed(2) });
 });
 
-app.get('/api/reports/variance', auth, admin, (req, res) => {
+app.get('/api/reports/variance', auth, requirePerm('reports.view'), (req, res) => {
   // الهدر: التوالف + قيمة فروقات الجرد (العجز)
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   const waste = all(`SELECT m.name_ar, SUM(wl.qty) qty, SUM(wl.cost) cost FROM waste_log wl JOIN raw_materials m ON m.id=wl.material_id
@@ -1275,7 +1275,7 @@ app.get('/api/reports/variance', auth, admin, (req, res) => {
 });
 
 // أداء الموردين
-app.get('/api/reports/suppliers', auth, admin, (_q, res) => res.json(all(`SELECT s.name_ar, COUNT(pu.id) invoices,
+app.get('/api/reports/suppliers', auth, requirePerm('reports.view'), (_q, res) => res.json(all(`SELECT s.name_ar, COUNT(pu.id) invoices,
   COALESCE(SUM(pu.total),0) total, MAX(pu.created_at) last FROM suppliers s LEFT JOIN purchases pu ON pu.supplier_id=s.id
   GROUP BY s.id ORDER BY total DESC`)));
 
@@ -1283,7 +1283,7 @@ app.get('/api/reports/suppliers', auth, admin, (_q, res) => res.json(all(`SELECT
 //  قائمة الدخل الشاملة (P&L) — مبيعات، تكلفة البضاعة، مصروفات، مخزون، ذمم
 //  كل رقم بالفترة المحددة إلا "المخزون الحالي" و"الذمم" فهي لحظية (حتى الآن)
 // ===================================================================
-app.get('/api/reports/pnl', auth, admin, (req, res) => {
+app.get('/api/reports/pnl', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
 
   // ---------- الإيرادات ----------
@@ -1365,7 +1365,7 @@ app.get('/api/reports/pnl', auth, admin, (req, res) => {
 });
 
 // المبيعات حسب الفئة
-app.get('/api/reports/categories', auth, admin, (req, res) => {
+app.get('/api/reports/categories', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   res.json(all(`SELECT c.name_ar, c.icon, SUM(oi.qty) qty, COALESCE(SUM(oi.qty*oi.price),0) sales, COALESCE(SUM(oi.qty*oi.cost),0) cost
     FROM order_items oi JOIN orders o ON o.id=oi.order_id JOIN products p ON p.id=oi.product_id LEFT JOIN categories c ON c.id=p.category_id
@@ -1373,7 +1373,7 @@ app.get('/api/reports/categories', auth, admin, (req, res) => {
 });
 
 // المبيعات حسب طريقة الدفع
-app.get('/api/reports/payments', auth, admin, (req, res) => {
+app.get('/api/reports/payments', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   res.json(all(`SELECT pm.name_ar, pm.icon, COUNT(*) cnt, COALESCE(SUM(o.total),0) total
     FROM orders o JOIN payment_methods pm ON pm.id=o.payment_method_id
@@ -1381,7 +1381,7 @@ app.get('/api/reports/payments', auth, admin, (req, res) => {
 });
 
 // الطلبات الملغاة
-app.get('/api/reports/cancelled', auth, admin, (req, res) => {
+app.get('/api/reports/cancelled', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   res.json(all(`SELECT o.invoice_no, o.total, o.created_at, o.note, t.name_ar table_name, u.full_name by_name
     FROM orders o LEFT JOIN tables t ON t.id=o.table_id LEFT JOIN users u ON u.id=o.cashier_id
@@ -1389,7 +1389,7 @@ app.get('/api/reports/cancelled', auth, admin, (req, res) => {
 });
 
 // حركة المخزون (بفلاتر: مدة + مادة + نوع الحركة)
-app.get('/api/reports/inventory-moves', auth, admin, (req, res) => {
+app.get('/api/reports/inventory-moves', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   const f = [], p = [];
   if (req.query.material) { f.push(' AND it.material_id=?'); p.push(req.query.material); }
@@ -1400,7 +1400,7 @@ app.get('/api/reports/inventory-moves', auth, admin, (req, res) => {
 });
 
 // تفاصيل المشتريات (بفلاتر: مدة + مورّد + مادة)
-app.get('/api/reports/purchases', auth, admin, (req, res) => {
+app.get('/api/reports/purchases', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   const f = [], p = [];
   if (req.query.supplier) { f.push(' AND pu.supplier_id=?'); p.push(req.query.supplier); }
@@ -2102,6 +2102,20 @@ app.delete('/api/backup/:name', auth, admin, (req, res) => {
   if (!safeBackupName(n)) return res.status(400).json({ error: 'اسم غير صالح' });
   try { rmSync(join(BACKUP_DIR, n)); } catch {}
   res.json({ ok: true });
+});
+// رفع نسخة احتياطية من جهاز خارجي (base64) — تُحفظ في مجلد النسخ ثم تُسترجع بمسار الاسترجاع المعتاد
+app.post('/api/backup/upload', auth, admin, (req, res) => {
+  const n = req.body?.name, data = req.body?.data;
+  if (!safeBackupName(n)) return res.status(400).json({ error: 'اسم غير صالح — الصيغة: backup-*.db' });
+  if (!data || typeof data !== 'string') return res.status(400).json({ error: 'محتوى الملف مطلوب (base64)' });
+  const buf = Buffer.from(data, 'base64');
+  // توقيع SQLite في أول 16 بايت — رفض أي ملف آخر
+  if (buf.length < 100 || !buf.subarray(0, 16).equals(Buffer.from('SQLite format 3\0', 'latin1')))
+    return res.status(400).json({ error: 'الملف ليس قاعدة SQLite صالحة' });
+  if (!existsSync(BACKUP_DIR)) mkdirSync(BACKUP_DIR, { recursive: true });
+  writeFileSync(join(BACKUP_DIR, n), buf);
+  logAudit(req.user.id, 'backup', null, 'upload', { name: n, size: buf.length });
+  res.json({ ok: true, name: n, size: buf.length });
 });
 // استرجاع نسخة: يأخذ نسخة أمان من الوضع الحالي أولاً ثم يستبدل الملف ويعيد فتح القاعدة
 app.post('/api/backup/restore', auth, admin, (req, res) => {

@@ -1,7 +1,7 @@
 // ===================================================================
 //  واجهة seaside — POS + مخازن + وصفات + حوكمة (ثنائي اللغة + ثيم)
 // ===================================================================
-const APP_BUILD = '2026-07-09.2';
+const APP_BUILD = '2026-07-21.1';
 console.log('seaside POS — build ' + APP_BUILD);
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -1379,17 +1379,28 @@ async function editRecipe(pid) {
 ROUTES.inventory = async (view) => {
   view.innerHTML = `<div class="page-head"><div><h2>📦 ${t('المخزون')}</h2><div class="crumb">${t('أرصدة المواد الخام بالوحدة الصغرى وقيمتها')}</div></div>
     <div class="head-actions"><button class="btn btn-ghost" id="inv-alerts">🔔 ${L('تنبيهات', 'Alerts')}</button><button class="btn btn-ghost" id="inv-units">📏 ${L('الوحدات', 'Units')}</button>${can('purchases') ? `<button class="btn btn-ghost" id="inv-tx">${t('📜 حركة المخزن')}</button>` : ''}<button class="btn btn-primary" id="inv-mat">${t('+ مادة خام')}</button></div></div>
-    <div class="toolbar"><select id="inv-wh"><option value="">${t('كل المخازن')}</option>${META.warehouses.map(w => `<option value="${w.id}">${esc(w.name_ar)}</option>`).join('')}</select></div>
+    <div class="toolbar"><input id="inv-q" type="search" placeholder="🔍 ${L('بحث بالاسم أو الكود…', 'Search by name or code…')}"><select id="inv-wh"><option value="">${t('كل المخازن')}</option>${META.warehouses.map(w => `<option value="${w.id}">${esc(w.name_ar)}</option>`).join('')}</select></div>
     <div class="kpi-grid" id="inv-kpi"></div>
-    <div class="card"><div class="t-wrap"><table><thead><tr><th>${t('الكود')}</th><th>${t('المادة')}</th><th>${t('المخزن')}</th><th>${t('الرصيد')}</th><th>${t('متوسط التكلفة')}</th><th>${t('قيمة المخزون')}</th><th>${t('الحالة')}</th><th></th></tr></thead><tbody id="inv-body"></tbody></table></div></div>`;
-  const load = async () => {
-    const w = $('#inv-wh').value;
-    const d = await api('/inventory' + (w ? '?warehouse=' + w : ''));
-    $('#inv-kpi').innerHTML = `
-      <div class="kpi"><div class="lbl">${t('عدد المواد')}</div><div class="val">${num(d.rows.length)}</div><span class="ic">📦</span></div>
-      <div class="kpi green"><div class="lbl">${t('قيمة المخزون')}</div><div class="val">${money(d.totalValue)}</div><span class="ic">💰</span></div>
-      <div class="kpi amber"><div class="lbl">${t('مواد تحت حد الطلب')}</div><div class="val">${num(d.lowCount)}</div><span class="ic">⚠️</span></div>`;
-    $('#inv-body').innerHTML = d.rows.map(mm => {
+    <div class="card"><div class="t-wrap"><table><thead><tr>
+      <th class="sortable" data-k="code">${t('الكود')}<span class="sort-ind"></span></th>
+      <th class="sortable" data-k="name_ar">${t('المادة')}<span class="sort-ind"></span></th>
+      <th class="sortable" data-k="warehouse">${t('المخزن')}<span class="sort-ind"></span></th>
+      <th class="sortable" data-k="qty">${t('الرصيد')}<span class="sort-ind"></span></th>
+      <th class="sortable" data-k="avg_cost">${t('متوسط التكلفة')}<span class="sort-ind"></span></th>
+      <th class="sortable" data-k="value">${t('قيمة المخزون')}<span class="sort-ind"></span></th>
+      <th>${t('الحالة')}</th><th></th></tr></thead><tbody id="inv-body"></tbody></table></div></div>`;
+  // بحث وفرز على جانب المتصفح — لا يغيّر أي بيانات
+  let D = { rows: [] }, sortK = null, sortDir = 1;
+  const renderRows = () => {
+    const q = ($('#inv-q').value || '').trim().toLowerCase();
+    let rows = D.rows.filter(mm => !q || (mm.name_ar || '').toLowerCase().includes(q) || (mm.code || '').toLowerCase().includes(q));
+    if (sortK) rows = [...rows].sort((a, b) => {
+      const x = a[sortK], y = b[sortK];
+      const c = ['qty', 'avg_cost', 'value'].includes(sortK) ? (+x || 0) - (+y || 0) : String(x || '').localeCompare(String(y || ''), 'ar');
+      return c * sortDir;
+    });
+    $$('thead .sortable', view).forEach(h => { const s = $('.sort-ind', h); if (s) s.textContent = h.dataset.k === sortK ? (sortDir === 1 ? ' ▲' : ' ▼') : ''; });
+    $('#inv-body').innerHTML = rows.map(mm => {
       const ratio = mm.reorder_point ? Math.min(100, mm.qty / (mm.reorder_point * 2) * 100) : 100;
       const cls = mm.low ? 'low' : (ratio < 60 ? 'mid' : '');
       return `<tr><td style="color:var(--text3)">${esc(mm.code || '')}</td><td><b>${esc(mm.name_ar)}</b><div class="bar"><span class="${cls}" style="width:${ratio}%"></span></div></td>
@@ -1397,8 +1408,19 @@ ROUTES.inventory = async (view) => {
         <td class="t-num">${money(mm.value)}</td><td>${mm.low ? `<span class="chip low">${t('منخفض')}</span>` : `<span class="chip ok">${t('متوفر')}</span>`}</td>
         <td><button class="btn btn-ghost btn-sm" data-m='${mm.id}'>${t('تعديل')}</button></td></tr>`;
     }).join('') || `<tr><td colspan="8" class="empty">${t('لا مواد')}</td></tr>`;
-    $$('#inv-body [data-m]', view).forEach(b => b.onclick = () => editMaterial(d.rows.find(x => x.id === +b.dataset.m)));
+    $$('#inv-body [data-m]', view).forEach(b => b.onclick = () => editMaterial(D.rows.find(x => x.id === +b.dataset.m)));
   };
+  const load = async () => {
+    const w = $('#inv-wh').value;
+    D = await api('/inventory' + (w ? '?warehouse=' + w : ''));
+    $('#inv-kpi').innerHTML = `
+      <div class="kpi"><div class="lbl">${t('عدد المواد')}</div><div class="val">${num(D.rows.length)}</div><span class="ic">📦</span></div>
+      <div class="kpi green"><div class="lbl">${t('قيمة المخزون')}</div><div class="val">${money(D.totalValue)}</div><span class="ic">💰</span></div>
+      <div class="kpi amber"><div class="lbl">${t('مواد تحت حد الطلب')}</div><div class="val">${num(D.lowCount)}</div><span class="ic">⚠️</span></div>`;
+    renderRows();
+  };
+  $$('thead .sortable', view).forEach(h => h.onclick = () => { const k = h.dataset.k; sortDir = sortK === k ? -sortDir : 1; sortK = k; renderRows(); });
+  $('#inv-q').oninput = renderRows;
   $('#inv-wh').onchange = load;
   $('#inv-mat').onclick = () => editMaterial(null);
   $('#inv-alerts').onclick = showAlerts;
