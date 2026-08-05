@@ -7,6 +7,8 @@ node_modules/
 
 # بيانات وقت التشغيل (يولّدها التطبيق — لا تُرفع)
 db/backups/
+# آخر نسخة بيانات من اللايف — تُرفع للريبو الخاص كنسخة أمان (استثناء من *.db)
+!live-backups/latest-live-backup.db
 public/uploads/
 public/logo-custom.png
 
