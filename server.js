@@ -228,29 +228,36 @@ app.get('/api/meta', auth, (_q, res) => res.json({
 //  لوحة المعلومات
 // ===================================================================
 app.get('/api/dashboard', auth, (req, res) => {
-  const today = localDay(0);
-  const yest = localDay(1);
-  const dayAgg = (d) => get(`SELECT COUNT(*) orders, COALESCE(SUM(total),0) sales, COALESCE(SUM(total-cost_total-tax),0) profit, COALESCE(SUM(guests),0) guests
-    FROM orders WHERE status='paid' AND substr(created_at,1,10)=?`, d);
-  const tD = dayAgg(today), yD = dayAgg(yest);
+  // مدة قابلة للتحديد من/إلى — الافتراضي: اليوم فقط (نفس السلوك القديم)
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : localDay(0);
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : from;
+  const msDay = 864e5;
+  const len = Math.max(1, Math.round((new Date(to) - new Date(from)) / msDay) + 1);
+  // الفترة السابقة المكافئة (بنفس الطول) للمقارنة النسبية
+  const prevTo = new Date(new Date(from).getTime() - msDay).toISOString().slice(0, 10);
+  const prevFrom = new Date(new Date(from).getTime() - len * msDay).toISOString().slice(0, 10);
+  const agg = (f, t2) => get(`SELECT COUNT(*) orders, COALESCE(SUM(total),0) sales, COALESCE(SUM(total-cost_total-tax),0) profit, COALESCE(SUM(guests),0) guests
+    FROM orders WHERE status='paid' AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<=?`, f, t2);
+  const tD = agg(from, to), yD = agg(prevFrom, prevTo);
   const pct = (a, b) => b ? Math.round(((a - b) / b) * 100) : (a ? 100 : 0);
 
-  // مبيعات آخر 14 يوماً
   const trend = all(`SELECT substr(created_at,1,10) d, COALESCE(SUM(total),0) sales, COUNT(*) orders
-    FROM orders WHERE status='paid' AND substr(created_at,1,10) >= ? GROUP BY d ORDER BY d`,
-    localDay(13));
+    FROM orders WHERE status='paid' AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<=? GROUP BY d ORDER BY d`, from, to);
 
   const topProducts = all(`SELECT oi.name_ar, SUM(oi.qty) qty, SUM(oi.qty*oi.price) sales
-    FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE o.status='paid'
-    GROUP BY oi.name_ar ORDER BY qty DESC LIMIT 6`);
+    FROM order_items oi JOIN orders o ON o.id=oi.order_id
+    WHERE o.status='paid' AND substr(o.created_at,1,10)>=? AND substr(o.created_at,1,10)<=?
+    GROUP BY oi.name_ar ORDER BY qty DESC LIMIT 6`, from, to);
   const byPayment = all(`SELECT pm.name_ar, pm.icon, COUNT(*) cnt, COALESCE(SUM(o.total),0) total
-    FROM orders o JOIN payment_methods pm ON pm.id=o.payment_method_id WHERE o.status='paid'
-    GROUP BY pm.id ORDER BY total DESC`);
+    FROM orders o JOIN payment_methods pm ON pm.id=o.payment_method_id
+    WHERE o.status='paid' AND substr(o.created_at,1,10)>=? AND substr(o.created_at,1,10)<=?
+    GROUP BY pm.id ORDER BY total DESC`, from, to);
   const recent = all(`SELECT o.id,o.invoice_no,o.order_type,o.status,o.total,o.created_at,t.name_ar table_name
     FROM orders o LEFT JOIN tables t ON t.id=o.table_id ORDER BY o.id DESC LIMIT 8`);
   const lowStock = all(`SELECT id,name_ar,qty,reorder_point FROM raw_materials WHERE is_active=1 AND qty<=reorder_point ORDER BY (qty/NULLIF(reorder_point,0)) LIMIT 10`);
 
   res.json({
+    period: { from, to, days: len },
     today: { orders: tD.orders, sales: tD.sales, profit: tD.profit, guests: tD.guests,
       ordersPct: pct(tD.orders, yD.orders), salesPct: pct(tD.sales, yD.sales), profitPct: pct(tD.profit, yD.profit) },
     avgOrder: tD.orders ? tD.sales / tD.orders : 0,
@@ -259,19 +266,26 @@ app.get('/api/dashboard', auth, (req, res) => {
   });
 });
 
-// سلسلة المبيعات/صافي الربح بفلتر مدة (للوحة)
+// سلسلة المبيعات/صافي الربح — بعدد أيام (days) أو بمدى صريح (from/to)
 app.get('/api/dashboard/series', auth, requirePerm('dashboard.view'), (req, res) => {
-  const days = Math.min(180, Math.max(1, +req.query.days || 14));
-  const fromD = localDay(days - 1);
+  let fromD, toD;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '')) {
+    fromD = req.query.from; toD = req.query.to;
+  } else {
+    const days = Math.min(180, Math.max(1, +req.query.days || 14));
+    fromD = localDay(days - 1); toD = localDay(0);
+  }
   const sales = all(`SELECT substr(created_at,1,10) d, COALESCE(SUM(total),0) sales, COALESCE(SUM(total-cost_total-tax),0) gross
-    FROM orders WHERE status='paid' AND substr(created_at,1,10)>=? GROUP BY d`, fromD);
+    FROM orders WHERE status='paid' AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<=? GROUP BY d`, fromD, toD);
   const exp = all(`SELECT COALESCE(spent_at,substr(created_at,1,10)) d, COALESCE(SUM(amount),0) expenses
-    FROM expenses WHERE COALESCE(spent_at,substr(created_at,1,10))>=? GROUP BY d`, fromD);
+    FROM expenses WHERE COALESCE(spent_at,substr(created_at,1,10))>=? AND COALESCE(spent_at,substr(created_at,1,10))<=? GROUP BY d`, fromD, toD);
   const sMap = {}, eMap = {};
   sales.forEach(r => sMap[r.d] = r); exp.forEach(r => eMap[r.d] = r.expenses);
   const out = [];
-  for (let i = 0; i < days; i++) {
-    const d = localDay(days - 1 - i);
+  const msDay = 864e5, start = new Date(fromD).getTime();
+  const span = Math.min(180, Math.max(1, Math.round((new Date(toD) - start) / msDay) + 1));
+  for (let i = 0; i < span; i++) {
+    const d = new Date(start + i * msDay).toISOString().slice(0, 10);
     const s = sMap[d] || { sales: 0, gross: 0 }; const e = eMap[d] || 0;
     out.push({ d, sales: s.sales, gross: s.gross, expenses: e, net: +(s.gross - e).toFixed(2) });
   }

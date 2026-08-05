@@ -1,7 +1,7 @@
 // ===================================================================
 //  واجهة seaside — POS + مخازن + وصفات + حوكمة (ثنائي اللغة + ثيم)
 // ===================================================================
-const APP_BUILD = '2026-07-21.5';
+const APP_BUILD = '2026-07-21.6';
 console.log('seaside POS — build ' + APP_BUILD);
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -444,21 +444,43 @@ async function boot() {
 // ===================================================================
 //  لوحة المعلومات
 // ===================================================================
+// مدة لوحة التحكم — تبقى محفوظة أثناء الجلسة
+let DASH_RNG = { from: null, to: null };
 ROUTES.dashboard = async (view) => {
-  const d = await api('/dashboard');
-  const delta = (p) => p === 0 ? '' : `<div class="delta ${p > 0 ? 'up' : 'down'}">${p > 0 ? '▲' : '▼'} ${Math.abs(p)}% ${t('عن أمس')}</div>`;
-  view.innerHTML = `
-    <div class="page-head"><div><h2>📊 ${t('لوحة المعلومات')}</h2><div class="crumb">${t('نظرة لحظية على مبيعات وأرباح اليوم')}</div></div>
-      <div class="head-actions"><button class="btn btn-primary" onclick="location.hash='#/pos'">${t('🧾 فتح الكاشير')}</button></div></div>
+  if (!DASH_RNG.from) DASH_RNG = { from: todayStr(), to: todayStr() };
+  const presetOf = () => {
+    const diff = Math.round((new Date(DASH_RNG.to) - new Date(DASH_RNG.from)) / 864e5);
+    if (DASH_RNG.to !== todayStr()) return '';
+    return diff === 0 ? 'day' : diff === 6 ? 'week' : diff === 29 ? 'month' : '';
+  };
+  let D = null;
+  const load = async () => {
+    const qs = `?from=${DASH_RNG.from}&to=${DASH_RNG.to}`;
+    const d = await api('/dashboard' + qs); D = d;
+    const oneDay = d.period.days === 1;
+    const delta = (p) => p === 0 ? '' : `<div class="delta ${p > 0 ? 'up' : 'down'}">${p > 0 ? '▲' : '▼'} ${Math.abs(p)}% ${oneDay ? t('عن أمس') : L('عن الفترة السابقة', 'vs previous period')}</div>`;
+    const pr = presetOf();
+    view.innerHTML = `
+    <div class="page-head"><div><h2>📊 ${t('لوحة المعلومات')}</h2><div class="crumb">${L('مؤشرات الفترة المحددة — كل الأرقام تتبع الفلتر', 'Metrics for the selected period')}</div></div>
+      <div class="head-actions"><button class="btn btn-ghost" id="dash-pdf">🖨️ PDF</button><button class="btn btn-primary" onclick="location.hash='#/pos'">${t('🧾 فتح الكاشير')}</button></div></div>
+    <div class="toolbar">
+      <span class="period-tabs" id="dash-presets">
+        <button data-p="day" class="${pr === 'day' ? 'active' : ''}">${L('اليوم', 'Today')}</button>
+        <button data-p="week" class="${pr === 'week' ? 'active' : ''}">${L('أسبوع', 'Week')}</button>
+        <button data-p="month" class="${pr === 'month' ? 'active' : ''}">${L('شهر', 'Month')}</button>
+      </span>
+      ${t('من')} <input type="date" id="dash-from" value="${DASH_RNG.from}"> ${t('إلى')} <input type="date" id="dash-to" value="${DASH_RNG.to}">
+      <button class="btn btn-primary btn-sm" id="dash-go">${t('تحديث')}</button>
+    </div>
     <div class="kpi-grid">
-      <div class="kpi"><div class="lbl">${t('طلبات اليوم')}</div><div class="val">${num(d.today.orders)}</div>${delta(d.today.ordersPct)}<span class="ic">🧾</span></div>
-      <div class="kpi sand"><div class="lbl">${t('مبيعات اليوم')}</div><div class="val">${money(d.today.sales)}</div>${delta(d.today.salesPct)}<span class="ic">💰</span></div>
-      <div class="kpi green"><div class="lbl">${t('أرباح اليوم (بعد التكلفة)')}</div><div class="val">${money(d.today.profit)}</div>${delta(d.today.profitPct)}<span class="ic">📈</span></div>
+      <div class="kpi"><div class="lbl">${oneDay ? t('طلبات اليوم') : L('طلبات الفترة', 'Orders')}</div><div class="val">${num(d.today.orders)}</div>${delta(d.today.ordersPct)}<span class="ic">🧾</span></div>
+      <div class="kpi sand"><div class="lbl">${oneDay ? t('مبيعات اليوم') : L('مبيعات الفترة', 'Sales')}</div><div class="val">${money(d.today.sales)}</div>${delta(d.today.salesPct)}<span class="ic">💰</span></div>
+      <div class="kpi green"><div class="lbl">${L('الأرباح (بعد التكلفة)', 'Profit (after cost)')}</div><div class="val">${money(d.today.profit)}</div>${delta(d.today.profitPct)}<span class="ic">📈</span></div>
       <div class="kpi amber"><div class="lbl">${t('متوسط الفاتورة')}</div><div class="val">${money(d.avgOrder)}</div><span class="ic">🧮</span></div>
     </div>
-    <div class="card"><h3 style="justify-content:space-between"><span>📈 ${t('ملخص المبيعات')}</span><span class="period-tabs" id="pt-sales">${periodTabs()}</span></h3><canvas id="ch-trend" height="90"></canvas></div>
+    <div class="card"><h3>📈 ${t('ملخص المبيعات')}</h3><canvas id="ch-trend" height="90"></canvas></div>
     <div class="grid-2">
-      <div class="card"><h3 style="justify-content:space-between"><span>💰 ${t('صافي الربح')}</span><span class="period-tabs" id="pt-net">${periodTabs()}</span></h3><canvas id="ch-net" height="120"></canvas></div>
+      <div class="card"><h3>💰 ${t('صافي الربح')}</h3><canvas id="ch-net" height="120"></canvas></div>
       <div class="card"><h3>💳 ${t('طرق الدفع')}</h3><canvas id="ch-pay" height="120"></canvas></div>
     </div>
     <div class="grid-2">
@@ -476,15 +498,47 @@ ROUTES.dashboard = async (view) => {
       ${d.recent.map(o => `<tr><td>${esc(o.invoice_no || '#' + o.id)}</td><td>${LL(TYPE, o.order_type)}</td><td>${esc(o.table_name || '—')}</td><td class="t-num">${money(o.total)}</td><td>${stBadge(o.status)}</td><td style="color:var(--text3)">${ago(o.created_at)}</td></tr>`).join('') || `<tr><td colspan="6" class="empty">${t('لا طلبات')}</td></tr>`}
       </tbody></table></div></div>`;
 
-  Object.values(charts).forEach(c => c.destroy()); charts = {};
-  charts.pay = new Chart($('#ch-pay'), { type: 'doughnut', data: { labels: d.byPayment.map(p => p.name_ar), datasets: [{ data: d.byPayment.map(p => p.total), backgroundColor: ['#0FB5BA', '#F2A65A', '#18A558', '#5C7A82', '#E2563B'] }] }, options: { plugins: { legend: { position: 'bottom', labels: { font: { family: fontFam() } } } } } });
-  drawSeries('sales', 14); drawSeries('net', 14);
-  $$('#pt-sales button').forEach(b => b.onclick = () => { $$('#pt-sales button').forEach(x => x.classList.toggle('active', x === b)); drawSeries('sales', +b.dataset.d); });
-  $$('#pt-net button').forEach(b => b.onclick = () => { $$('#pt-net button').forEach(x => x.classList.toggle('active', x === b)); drawSeries('net', +b.dataset.d); });
+    Object.values(charts).forEach(c => c.destroy()); charts = {};
+    charts.pay = new Chart($('#ch-pay'), { type: 'doughnut', data: { labels: d.byPayment.map(p => p.name_ar), datasets: [{ data: d.byPayment.map(p => p.total), backgroundColor: ['#0FB5BA', '#F2A65A', '#18A558', '#5C7A82', '#E2563B'] }] }, options: { plugins: { legend: { position: 'bottom', labels: { font: { family: fontFam() } } } } } });
+    await drawSeries('sales', DASH_RNG); await drawSeries('net', DASH_RNG);
+
+    const applyRange = (from, to) => { DASH_RNG = { from, to }; load(); };
+    $$('#dash-presets button').forEach(b => b.onclick = () => {
+      const days = b.dataset.p === 'day' ? 0 : b.dataset.p === 'week' ? 6 : 29;
+      applyRange(new Date(Date.now() - days * 864e5).toLocaleDateString('en-CA'), todayStr());
+    });
+    $('#dash-go').onclick = () => { const f = $('#dash-from').value, tt = $('#dash-to').value; if (f && tt && f <= tt) applyRange(f, tt); };
+    $('#dash-pdf').onclick = () => printDashboard(D);
+  };
+  load();
 };
-const periodTabs = () => [['7', 'آخر ٧ أيام'], ['14', 'آخر ١٤ يوم'], ['30', 'آخر ٣٠ يوم']].map(p => `<button data-d="${p[0]}" class="${p[0] === '14' ? 'active' : ''}">${L(p[1], p[0] + 'd')}</button>`).join('');
-async function drawSeries(which, days) {
-  const data = await api('/dashboard/series?days=' + days).catch(() => []);
+// طباعة اللوحة PDF: مؤشرات + صور الرسوم البيانية + الجداول — عبر print-area A4
+function printDashboard(d) {
+  if (!d) return;
+  const head = `<div class="rd-head">${logoMark('rd-logo')}<div class="rd-title"><h1>${esc(META.settings.cafe_name || 'seaside')}</h1><div>${t('لوحة المعلومات')} — ${esc(d.period.from)} ← ${esc(d.period.to)}</div><small>${new Date().toLocaleString('en-GB')}</small></div></div>`;
+  const kpis = `<div class="rd-kpis">
+    <div><span>${L('طلبات الفترة', 'Orders')}</span><b>${num(d.today.orders)}</b></div>
+    <div><span>${L('مبيعات الفترة', 'Sales')}</span><b>${money(d.today.sales)}</b></div>
+    <div><span>${L('الأرباح (بعد التكلفة)', 'Profit')}</span><b>${money(d.today.profit)}</b></div>
+    <div><span>${t('متوسط الفاتورة')}</span><b>${money(d.avgOrder)}</b></div></div>`;
+  const img = (c) => c ? `<img src="${c.canvas.toDataURL('image/png')}" style="width:100%;max-height:220px;object-fit:contain">` : '';
+  const tbl = (title, headCols, rowsHtml) => `<h3 style="margin:14px 0 6px">${title}</h3>
+    <table class="rd-table"><thead><tr>${headCols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rowsHtml}</tbody></table>`;
+  const topRows = d.topProducts.map(p => `<tr><td>${esc(p.name_ar)}</td><td>${num(p.qty)}</td><td>${money(p.sales)}</td></tr>`).join('') || `<tr><td colspan="3">—</td></tr>`;
+  const payRows = d.byPayment.map(p => `<tr><td>${p.icon || ''} ${esc(p.name_ar)}</td><td>${num(p.cnt)}</td><td>${money(p.total)}</td></tr>`).join('') || `<tr><td colspan="3">—</td></tr>`;
+  const pa = $('#print-area');
+  pa.innerHTML = `<div class="report-doc">${head}${kpis}
+    <h3 style="margin:14px 0 6px">📈 ${t('ملخص المبيعات')}</h3>${img(charts.trend)}
+    <h3 style="margin:14px 0 6px">💰 ${t('صافي الربح')}</h3>${img(charts.net)}
+    ${tbl('⭐ ' + t('الأكثر مبيعاً'), [t('الصنف'), t('الكمية'), t('المبيعات')], topRows)}
+    ${tbl('💳 ' + t('طرق الدفع'), [L('الطريقة', 'Method'), L('عدد الطلبات', 'Orders'), t('الإجمالي')], payRows)}</div>`;
+  pa.classList.remove('hidden');
+  setPrintPage('@page{size:A4;margin:14mm}');
+  const done = () => { pa.classList.add('hidden'); pa.innerHTML = ''; setPrintPage(''); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done); setTimeout(() => window.print(), 200);
+}
+async function drawSeries(which, rng) {
+  const data = await api(`/dashboard/series?from=${rng.from}&to=${rng.to}`).catch(() => []);
   const labels = data.map(x => dDay(x.d));
   if (which === 'sales') {
     if (charts.trend) charts.trend.destroy();
