@@ -1,7 +1,7 @@
 // ===================================================================
 //  واجهة seaside — POS + مخازن + وصفات + حوكمة (ثنائي اللغة + ثيم)
 // ===================================================================
-const APP_BUILD = '2026-07-21.2';
+const APP_BUILD = '2026-07-21.3';
 console.log('seaside POS — build ' + APP_BUILD);
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -1378,7 +1378,7 @@ async function editRecipe(pid) {
 // ===================================================================
 ROUTES.inventory = async (view) => {
   view.innerHTML = `<div class="page-head"><div><h2>📦 ${t('المخزون')}</h2><div class="crumb">${t('أرصدة المواد الخام بالوحدة الصغرى وقيمتها')}</div></div>
-    <div class="head-actions"><button class="btn btn-ghost" id="inv-alerts">🔔 ${L('تنبيهات', 'Alerts')}</button><button class="btn btn-ghost" id="inv-units">📏 ${L('الوحدات', 'Units')}</button>${can('purchases') ? `<button class="btn btn-ghost" id="inv-tx">${t('📜 حركة المخزن')}</button>` : ''}<button class="btn btn-primary" id="inv-mat">${t('+ مادة خام')}</button></div></div>
+    <div class="head-actions"><button class="btn btn-ghost" id="inv-alerts">🔔 ${L('تنبيهات', 'Alerts')}</button><button class="btn btn-ghost" id="inv-units">📏 ${L('الوحدات', 'Units')}</button>${can('purchases') ? `<button class="btn btn-ghost" id="inv-tx">${t('📜 حركة المخزن')}</button>` : ''}<button class="btn btn-ghost" id="inv-export">⬇ ${L('تصدير Excel', 'Export Excel')}</button><button class="btn btn-primary" id="inv-mat">${t('+ مادة خام')}</button></div></div>
     <div class="toolbar"><input id="inv-q" type="search" placeholder="🔍 ${L('بحث بالاسم أو الكود…', 'Search by name or code…')}"><select id="inv-wh"><option value="">${t('كل المخازن')}</option>${META.warehouses.map(w => `<option value="${w.id}">${esc(w.name_ar)}</option>`).join('')}</select></div>
     <div class="kpi-grid" id="inv-kpi"></div>
     <div class="card"><div class="t-wrap"><table><thead><tr>
@@ -1422,6 +1422,17 @@ ROUTES.inventory = async (view) => {
   $$('thead .sortable', view).forEach(h => h.onclick = () => { const k = h.dataset.k; sortDir = sortK === k ? -sortDir : 1; sortK = k; renderRows(); });
   $('#inv-q').oninput = renderRows;
   $('#inv-wh').onchange = load;
+  $('#inv-export').onclick = () => exportExcel('seaside-inventory-' + todayStr(), D.rows.map(m => ({
+    [L('الكود', 'Code')]: m.code || '',
+    [L('المادة', 'Material')]: m.name_ar,
+    [L('المخزن', 'Warehouse')]: m.warehouse || '—',
+    [L('الرصيد', 'Balance')]: m.qty,
+    [L('الوحدة', 'Unit')]: m.unit || '',
+    [L('متوسط التكلفة', 'Avg cost')]: m.avg_cost,
+    [L('قيمة المخزون', 'Stock value')]: +(m.value || 0).toFixed(2),
+    [L('حد الطلب', 'Reorder point')]: m.reorder_point,
+    [L('الحالة', 'Status')]: m.low ? L('منخفض', 'Low') : L('متوفر', 'OK'),
+  })));
   $('#inv-mat').onclick = () => editMaterial(null);
   $('#inv-alerts').onclick = showAlerts;
   $('#inv-units').onclick = manageUnits;
