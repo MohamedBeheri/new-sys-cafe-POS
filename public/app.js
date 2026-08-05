@@ -1,7 +1,7 @@
 // ===================================================================
 //  واجهة seaside — POS + مخازن + وصفات + حوكمة (ثنائي اللغة + ثيم)
 // ===================================================================
-const APP_BUILD = '2026-07-21.1';
+const APP_BUILD = '2026-07-21.2';
 console.log('seaside POS — build ' + APP_BUILD);
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -593,7 +593,7 @@ function renderCart() {
       <div class="cart-meta">
         ${isDine ? `<select id="c-table"><option value="">${t('— الطاولة —')}</option>${META.tables.map(x => `<option value="${x.id}" ${POS_STATE.table_id == x.id ? 'selected' : ''}>${esc(x.name_ar)}</option>`).join('')}</select>
         <input id="c-guests" type="number" min="1" value="${POS_STATE.guests}" style="max-width:70px" title="${t('عدد الأفراد')}">` : ''}
-        <select id="c-waiter"><option value="">${t('— النادل —')}</option>${META.waiters.map(w => `<option value="${w.id}" ${POS_STATE.waiter_id == w.id ? 'selected' : ''}>${esc(w.full_name)}</option>`).join('')}</select>
+        <select id="c-waiter"><option value="">${L('— كابتن الأوردر —', '— Order captain —')}</option>${META.waiters.map(w => `<option value="${w.id}" ${POS_STATE.waiter_id == w.id ? 'selected' : ''}>${esc(w.full_name)}</option>`).join('')}</select>
       </div>
       ${POS_STATE.open_order ? `<div class="open-banner">🟠 ${t('استكمال فاتورة مفتوحة')} <b>${esc(POS_STATE.open_order.invoice_no)}</b><button id="ob-x" title="${L('إلغاء الاستكمال وبدء فاتورة جديدة', 'Detach and start fresh')}">✕</button></div>` : ''}
       <div class="cust-row">
@@ -894,7 +894,7 @@ function receiptHTML(o) {
     ${F.token ? `<div>Token: ${o.id}</div>` : ''}
     ${F.order_type !== 0 || (F.table !== 0 && o.table_name) ? `<div>${F.order_type !== 0 ? (ttype[o.order_type] || '') : ''}${F.table !== 0 && o.table_name ? ' — ' + esc(o.table_name) : ''}</div>` : ''}
     ${F.cashier !== 0 && o.cashier_name ? `<div>Cashier: ${esc(o.cashier_name)}</div>` : ''}
-    ${F.waiter && o.waiter_name ? `<div>Waiter: ${esc(o.waiter_name)}</div>` : ''}
+    ${F.waiter !== 0 && o.waiter_name ? `<div>Captain: ${esc(o.waiter_name)}</div>` : ''}
     ${o.customer_name || o.qr_name ? `<div>Customer: ${esc(o.customer_name || o.qr_name)}</div>` : ''}
     ${o.qr_phone ? `<div>Phone: ${esc(o.qr_phone)}</div>` : ''}
     ${o.qr_address ? `<div>Address: ${esc(o.qr_address)}</div>` : ''}
@@ -1022,7 +1022,7 @@ async function openOrder(id) {
   const remaining = +(o.total - (o.paid_amount || 0)).toFixed(2);
   const hasDue = o.status === 'paid' && remaining > 0;
   const m = modal(`<h3>🧾 ${esc(o.invoice_no)}</h3>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${stBadge(o.status)}${o.status === 'paid' ? payBadge(o.payment_status) : ''}<span class="chip">${LL(TYPE, o.order_type)}</span>${o.table_name ? `<span class="chip">${esc(o.table_name)}</span>` : ''}${o.customer_name ? `<span class="chip">👤 ${esc(o.customer_name)}</span>` : ''}<span class="chip">${dt(o.created_at)}</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${stBadge(o.status)}${o.status === 'paid' ? payBadge(o.payment_status) : ''}<span class="chip">${LL(TYPE, o.order_type)}</span>${o.table_name ? `<span class="chip">${esc(o.table_name)}</span>` : ''}${o.customer_name ? `<span class="chip">👤 ${esc(o.customer_name)}</span>` : ''}${o.waiter_name ? `<span class="chip">🤵 ${L('كابتن', 'Captain')}: ${esc(o.waiter_name)}</span>` : ''}<span class="chip">${dt(o.created_at)}</span></div>
     <div class="t-wrap"><table><thead><tr><th>${t('الصنف')}</th><th>${t('الكمية')}</th><th>${t('السعر')}</th><th>${t('الإجمالي')}</th></tr></thead><tbody>
       ${o.items.map(i => `<tr><td>${esc(i.name_ar)}${i.note ? `<br><small style="color:var(--sand-deep)">↳ ${esc(i.note)}</small>` : ''}</td><td class="t-num">${i.qty}</td><td class="t-num">${money(i.price)}</td><td class="t-num">${money(i.price * i.qty)}</td></tr>`).join('')}
     </tbody></table></div>
@@ -2311,7 +2311,7 @@ ROUTES.config = async (view) => {
     toast(t('رجعنا للّوجو الأصلي')); renderShell(); route();
   });
   // ---- بناء الفاتورة الديناميكي ----
-  const RFIELDS = [['logo', 'اللوجو', 'Logo'], ['tagline', 'الوصف', 'Tagline'], ['address', 'العنوان', 'Address'], ['phone', 'الهاتف', 'Phone'], ['datetime', 'التاريخ والوقت', 'Date & time'], ['order_no', 'رقم الطلب', 'Order no.'], ['token', 'رقم التوكن', 'Token'], ['order_type', 'نوع الطلب', 'Order type'], ['table', 'الطاولة', 'Table'], ['cashier', 'الكاشير', 'Cashier'], ['waiter', 'النادل', 'Waiter'], ['barcode', 'الباركود', 'Barcode'], ['footer', 'تذييل الفاتورة', 'Footer'], ['ref', 'مرجع الفاتورة', 'Ref']];
+  const RFIELDS = [['logo', 'اللوجو', 'Logo'], ['tagline', 'الوصف', 'Tagline'], ['address', 'العنوان', 'Address'], ['phone', 'الهاتف', 'Phone'], ['datetime', 'التاريخ والوقت', 'Date & time'], ['order_no', 'رقم الطلب', 'Order no.'], ['token', 'رقم التوكن', 'Token'], ['order_type', 'نوع الطلب', 'Order type'], ['table', 'الطاولة', 'Table'], ['cashier', 'الكاشير', 'Cashier'], ['waiter', 'كابتن الأوردر', 'Captain'], ['barcode', 'الباركود', 'Barcode'], ['footer', 'تذييل الفاتورة', 'Footer'], ['ref', 'مرجع الفاتورة', 'Ref']];
   let RF = {}; try { RF = JSON.parse(s.receipt_fields || '{}'); } catch { RF = {}; }
   $('#rfields').innerHTML = RFIELDS.map(f => `<label class="rfield"><input type="checkbox" data-rf="${f[0]}" ${RF[f[0]] !== 0 ? 'checked' : ''}> ${L(f[1], f[2])}</label>`).join('');
   $('#rf-save').onclick = async () => {
