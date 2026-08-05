@@ -1452,6 +1452,22 @@ app.get('/api/reports/pnl', auth, requirePerm('reports.view'), (req, res) => {
 });
 
 // المبيعات حسب الفئة
+// تقرير كباتن الأوردر: فواتير ومبيعات كل كابتن — مجمّع للكل أو مفصّل لكابتن واحد
+app.get('/api/reports/captains', auth, requirePerm('reports.view'), (req, res) => {
+  const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
+  const wid = +req.query.waiter || 0;
+  const p = [from, to]; if (wid) p.push(wid);
+  const byCaptain = all(`SELECT o.waiter_id, COALESCE(u.full_name,'—') full_name, COUNT(*) cnt,
+    COALESCE(SUM(o.total),0) total, COALESCE(SUM(o.tip),0) tips, COALESCE(AVG(o.total),0) avg_inv
+    FROM orders o LEFT JOIN users u ON u.id=o.waiter_id
+    WHERE o.status='paid' AND o.created_at>=? AND o.created_at<=?${wid ? ' AND o.waiter_id=?' : ''}
+    GROUP BY o.waiter_id ORDER BY total DESC`, ...p);
+  const invoices = wid ? all(`SELECT o.invoice_no, o.order_type, o.total, o.tip, o.created_at
+    FROM orders o WHERE o.status='paid' AND o.waiter_id=? AND o.created_at>=? AND o.created_at<=?
+    ORDER BY o.id DESC`, wid, from, to) : [];
+  res.json({ byCaptain, invoices });
+});
+
 app.get('/api/reports/categories', auth, requirePerm('reports.view'), (req, res) => {
   const from = req.query.from || '0000', to = (req.query.to || '9999') + '￿';
   res.json(all(`SELECT c.name_ar, c.icon, SUM(oi.qty) qty, COALESCE(SUM(oi.qty*oi.price),0) sales, COALESCE(SUM(oi.qty*oi.cost),0) cost

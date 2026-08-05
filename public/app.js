@@ -1,7 +1,7 @@
 // ===================================================================
 //  واجهة seaside — POS + مخازن + وصفات + حوكمة (ثنائي اللغة + ثيم)
 // ===================================================================
-const APP_BUILD = '2026-07-21.4';
+const APP_BUILD = '2026-07-21.5';
 console.log('seaside POS — build ' + APP_BUILD);
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -1886,6 +1886,7 @@ const REPORTS = [
   { k: 'products', ic: '📦', t: ['الأصناف', 'Products'] },
   { k: 'categories', ic: '🏷️', t: ['الفئات', 'Categories'] },
   { k: 'cashiers', ic: '👤', t: ['أداء الكاشير', 'Cashier performance'] },
+  { k: 'captains', ic: '🤵', t: ['كباتن الأوردر', 'Order captains'], wtr: true },
   { k: 'cancelled', ic: '❌', t: ['الطلبات الملغاة', 'Cancelled orders'] },
   { sec: ['المالية', 'Finance'] },
   { k: 'journal', ic: '📒', t: ['اليومية المالية', 'Daily journal'] },
@@ -1919,6 +1920,7 @@ ROUTES.reports = async (view) => {
         <div class="toolbar">${t('من')} <input type="date" id="r-from" value="${from}"> ${t('إلى')} <input type="date" id="r-to" value="${todayStr()}">
           <select id="r-material" class="hidden"><option value="">${L('كل المواد', 'All materials')}</option>${materials.map(x => `<option value="${x.id}">${esc(x.name_ar)}</option>`).join('')}</select>
           <select id="r-method" class="hidden"><option value="">${t('كل الطرق')}</option>${methods.map(x => `<option value="${x.id}">${x.icon || ''} ${esc(x.name_ar)}</option>`).join('')}</select>
+          <select id="r-waiter" class="hidden"><option value="">${L('كل الكباتن', 'All captains')}</option>${(meta.waiters || []).map(x => `<option value="${x.id}">🤵 ${esc(x.full_name)}</option>`).join('')}</select>
           <button class="btn btn-primary btn-sm" id="r-go">${t('تحديث')}</button>
           <span style="flex:1;min-width:10px"></span>
           <button class="btn btn-ghost btn-sm" id="r-xls">⬇ Excel</button>
@@ -1933,9 +1935,11 @@ ROUTES.reports = async (view) => {
     const rep = REPORTS.find(r => r.k === curR); const title = L(rep.t[0], rep.t[1]);
     $('#r-material').classList.toggle('hidden', !rep.mat);
     $('#r-method').classList.toggle('hidden', !rep.meth);
+    $('#r-waiter').classList.toggle('hidden', !rep.wtr);
     const mat = rep.mat && $('#r-material').value ? '&material=' + $('#r-material').value : '';
     const meth = rep.meth && $('#r-method').value ? '&method=' + $('#r-method').value : '';
-    const f = $('#r-from').value, tt = $('#r-to').value, qs = `?from=${f}&to=${tt}${mat}${meth}`;
+    const wtr = rep.wtr && $('#r-waiter').value ? '&waiter=' + $('#r-waiter').value : '';
+    const f = $('#r-from').value, tt = $('#r-to').value, qs = `?from=${f}&to=${tt}${mat}${meth}${wtr}`;
     const body = $('#r-body'); body.innerHTML = '<div class="loading">…</div>';
     let kpis = [], columns = [], rows = [];
     try {
@@ -1962,6 +1966,23 @@ ROUTES.reports = async (view) => {
         const d = await api('/reports/sales' + qs);
         columns = [{ key: 'name', label: t('الكاشير') }, { key: 'cnt', label: L('عدد الطلبات', 'Orders') }, { key: 'total', label: t('المبيعات') }, { key: 'collected', label: t('المحصَّل') }];
         rows = d.byCashier.map(x => ({ name: x.full_name || '—', cnt: num(x.cnt), total: money(x.total), collected: money(x.collected) }));
+      } else if (curR === 'captains') {
+        const d = await api('/reports/captains' + qs);
+        const tot = d.byCaptain.reduce((s, x) => s + x.total, 0), cnt = d.byCaptain.reduce((s, x) => s + x.cnt, 0);
+        if ($('#r-waiter').value && d.invoices) {
+          // كابتن واحد: ملخصه + قائمة فواتيره
+          const c = d.byCaptain[0];
+          kpis = [{ lbl: L('الكابتن', 'Captain'), val: c ? c.full_name : '—' }, { lbl: L('عدد الفواتير', 'Invoices'), val: num(cnt) },
+            { lbl: t('إجمالي المبيعات'), val: money(tot) }, { lbl: L('متوسط الفاتورة', 'Avg invoice'), val: money(c ? c.avg_inv : 0) }];
+          columns = [{ key: 'inv', label: t('الفاتورة') }, { key: 'type', label: t('نوع الطلب') }, { key: 'total', label: t('الإجمالي') }, { key: 'tip', label: t('بقشيش/توصيل') }, { key: 'date', label: t('الوقت') }];
+          rows = d.invoices.map(o => ({ inv: o.invoice_no, type: LL(TYPE, o.order_type), total: money(o.total), tip: o.tip ? money(o.tip) : '—', date: dt(o.created_at) }));
+        } else {
+          // مجمّع لكل الكباتن
+          kpis = [{ lbl: L('عدد الكباتن', 'Captains'), val: num(d.byCaptain.filter(x => x.waiter_id).length) },
+            { lbl: L('عدد الفواتير', 'Invoices'), val: num(cnt) }, { lbl: t('إجمالي المبيعات'), val: money(tot) }];
+          columns = [{ key: 'name', label: L('الكابتن', 'Captain') }, { key: 'cnt', label: L('عدد الفواتير', 'Invoices') }, { key: 'total', label: t('إجمالي المبيعات') }, { key: 'avg', label: L('متوسط الفاتورة', 'Avg invoice') }, { key: 'tips', label: t('بقشيش/توصيل') }];
+          rows = d.byCaptain.map(x => ({ name: x.waiter_id ? '🤵 ' + x.full_name : L('— بدون كابتن —', '— No captain —'), cnt: num(x.cnt), total: money(x.total), avg: money(x.avg_inv), tips: money(x.tips) }));
+        }
       } else if (curR === 'products') {
         const d = await api('/reports/sales' + qs);
         columns = [{ key: 'name', label: t('الصنف') }, { key: 'qty', label: t('الكمية') }, { key: 'sales', label: t('المبيعات') }, { key: 'cost', label: t('التكلفة') }, { key: 'margin', label: t('هامش الربح') }];
