@@ -1,7 +1,7 @@
 // ===================================================================
 //  واجهة seaside — POS + مخازن + وصفات + حوكمة (ثنائي اللغة + ثيم)
 // ===================================================================
-const APP_BUILD = '2026-07-21.3';
+const APP_BUILD = '2026-07-21.4';
 console.log('seaside POS — build ' + APP_BUILD);
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -1518,10 +1518,13 @@ ROUTES.purchases = async (view) => {
       <td class="t-num">${money(p.total)}</td><td class="t-num">${money(p.paid_amount)}</td>
       <td class="t-num" style="color:${p.remaining > 0 ? 'var(--red)' : 'var(--text3)'}">${p.remaining > 0 ? money(p.remaining) : '—'}</td>
       <td>${payBadge(p.payment_status)}</td><td style="color:var(--text3)">${dt(p.created_at)}</td>
-      <td>${p.remaining > 0 ? `<button class="btn btn-sand btn-sm" data-st="${p.id}">${t('سداد')}</button>` : ''}</td></tr>`).join('') || `<tr><td colspan="10" class="empty">${t('لا مشتريات بعد')}</td></tr>`}
+      <td style="white-space:nowrap">${p.remaining > 0 ? `<button class="btn btn-sand btn-sm" data-st="${p.id}">${t('سداد')}</button> ` : ''}<button class="btn btn-ghost btn-sm" data-ed="${p.id}">✏️ ${t('تعديل')}</button></td></tr>`).join('') || `<tr><td colspan="10" class="empty">${t('لا مشتريات بعد')}</td></tr>`}
     </tbody></table></div></div>`;
-  $('#pu-new').onclick = newPurchase;
+  $('#pu-new').onclick = () => newPurchase();
   $$('#view [data-st]').forEach(b => b.onclick = () => settlePurchase(rows.find(p => p.id === +b.dataset.st)));
+  $$('#view [data-ed]').forEach(b => b.onclick = async () => {
+    try { newPurchase(await api('/purchases/' + b.dataset.ed)); } catch (e) { toast(e.message, 'err'); }
+  });
   $('#pu-stmt').onclick = async () => {
     const sups = await api('/admin/suppliers');
     const m = modal(`<h3>📄 ${t('كشف حساب مورد')}</h3>
@@ -1563,24 +1566,29 @@ function settlePurchase(p) {
       m.remove(); toast(t('تم السداد ✅')); route(); } catch (e) { $('#sp-e', m).textContent = e.message; }
   };
 }
-async function newPurchase() {
+async function newPurchase(editP) {
   const [materials, suppliers] = await Promise.all([api('/materials'), api('/admin/suppliers')]);
   const matById = (id) => materials.find(x => x.id === id) || {};
   const defCost = (mat, unit) => unit === 'purchase' ? +((mat.avg_cost || 0) * (mat.purchase_factor || 1)).toFixed(3) : (mat.avg_cost || 0);
   const newLine = (id) => { const mt = matById(id); const unit = (mt.purchase_factor > 1) ? 'purchase' : 'base'; return { material_id: id, unit, qty: 1, unit_cost: defCost(mt, unit) }; };
-  let items = [newLine(materials[0]?.id)];
-  const m = modal(`<h3>${t('🚚 فاتورة شراء جديدة')}</h3>
-    <div class="row"><div class="field"><label>${t('المورد')}</label><select id="pu-sup"><option value="">${t('— بدون —')}</option>${suppliers.map(s => `<option value="${s.id}">${esc(s.name_ar)}</option>`).join('')}</select></div>
-      <div class="field"><label>${t('المخزن المستلِم')}</label><select id="pu-wh">${META.warehouses.map(w => `<option value="${w.id}">${esc(w.name_ar)}</option>`).join('')}</select></div></div>
-    <div class="row"><div class="field"><label>${t('رقم الفاتورة')}</label><input id="pu-ref"></div><div class="field"><label>${t('ضريبة الفاتورة')}</label><input id="pu-tax" type="number" value="0"></div></div>
+  // وضع التعديل: البنود المسجلة محفوظة بالوحدة الصغرى دائماً
+  let items = editP
+    ? editP.items.map(i => ({ material_id: i.material_id, unit: 'base', qty: i.qty, unit_cost: i.unit_cost }))
+    : [newLine(materials[0]?.id)];
+  const editPS = editP ? (editP.payment_status === 'paid' ? 'paid' : (editP.payment_status === 'partial' ? 'partial' : 'credit')) : 'paid';
+  const m = modal(`<h3>${editP ? `✏️ ${t('تعديل فاتورة شراء')} — ${esc(editP.ref || '#' + editP.id)}` : t('🚚 فاتورة شراء جديدة')}</h3>
+    ${editP ? `<p style="color:var(--sand-deep);font-size:12.5px;margin-bottom:10px">${L('التعديل يعكس أثر الفاتورة القديم من المخزون والخزينة ويطبّق الجديد تلقائياً', 'Editing reverses the old stock/treasury effect and applies the new one automatically')}</p>` : ''}
+    <div class="row"><div class="field"><label>${t('المورد')}</label><select id="pu-sup"><option value="">${t('— بدون —')}</option>${suppliers.map(s => `<option value="${s.id}" ${editP && editP.supplier_id === s.id ? 'selected' : ''}>${esc(s.name_ar)}</option>`).join('')}</select></div>
+      <div class="field"><label>${t('المخزن المستلِم')}</label><select id="pu-wh">${META.warehouses.map(w => `<option value="${w.id}" ${editP && editP.warehouse_id === w.id ? 'selected' : ''}>${esc(w.name_ar)}</option>`).join('')}</select></div></div>
+    <div class="row"><div class="field"><label>${t('رقم الفاتورة')}</label><input id="pu-ref" value="${editP ? esc(editP.ref || '') : ''}"></div><div class="field"><label>${t('ضريبة الفاتورة')}</label><input id="pu-tax" type="number" value="${editP ? (editP.tax || 0) : 0}"></div></div>
     <div class="row"><div class="field"><label>${t('السداد')}</label><select id="pu-paystatus">
-        <option value="paid">✅ ${t('مدفوعة بالكامل')}</option><option value="partial">⏳ ${t('دفعة جزئية')}</option><option value="credit">🕒 ${t('آجل بالكامل')}</option></select></div>
-      <div class="field"><label>${t('الدفع من')}</label><select id="pu-method">${META.payment_methods.map(p => `<option value="${p.id}">${p.icon || ''} ${esc(p.name_ar)}</option>`).join('')}</select></div>
-      <div class="field hidden" id="pu-paid-box"><label>${t('المبلغ المدفوع الآن')}</label><input id="pu-paid" type="number" step="any" value="0"></div></div>
+        <option value="paid" ${editPS === 'paid' ? 'selected' : ''}>✅ ${t('مدفوعة بالكامل')}</option><option value="partial" ${editPS === 'partial' ? 'selected' : ''}>⏳ ${t('دفعة جزئية')}</option><option value="credit" ${editPS === 'credit' ? 'selected' : ''}>🕒 ${t('آجل بالكامل')}</option></select></div>
+      <div class="field"><label>${t('الدفع من')}</label><select id="pu-method">${META.payment_methods.map(p => `<option value="${p.id}" ${editP && editP.payment_method_id === p.id ? 'selected' : ''}>${p.icon || ''} ${esc(p.name_ar)}</option>`).join('')}</select></div>
+      <div class="field ${editPS === 'partial' ? '' : 'hidden'}" id="pu-paid-box"><label>${t('المبلغ المدفوع الآن')}</label><input id="pu-paid" type="number" step="any" value="${editP ? (editP.paid_amount || 0) : 0}"></div></div>
     <div style="font-weight:700;margin:6px 0;color:var(--sea-deep)">${t('البنود')} <span style="font-weight:400;font-size:12px;color:var(--text2)">${L('اختر وحدة الشراء — النظام يحوّلها تلقائياً للمخزن', 'pick purchase unit — auto-converted to stock')}</span></div><div id="pu-lines"></div>
     <button class="btn btn-ghost btn-sm" id="pu-add">${t('+ بند')}</button>
     <div class="cost-summary"><div>${t('إجمالي الفاتورة')}</div><div class="big" id="pu-total">—</div></div>
-    <div class="modal-actions"><button class="btn btn-ghost" id="pu-x">${t('إلغاء')}</button><button class="btn btn-primary" id="pu-save">${t('💾 استلام وتحديث المخزون')}</button></div>`, 'wide');
+    <div class="modal-actions"><button class="btn btn-ghost" id="pu-x">${t('إلغاء')}</button><button class="btn btn-primary" id="pu-save">${editP ? `💾 ${t('حفظ التعديل')}` : t('💾 استلام وتحديث المخزون')}</button></div>`, 'wide');
   const opts = (sel) => materials.map(x => `<option value="${x.id}" ${x.id === sel ? 'selected' : ''}>${esc(x.name_ar)}</option>`).join('');
   const total = () => money(items.reduce((s, l) => s + l.qty * l.unit_cost, 0) + (+$('#pu-tax', m).value || 0));
   const draw = () => {
@@ -1613,10 +1621,11 @@ async function newPurchase() {
       const ps = $('#pu-paystatus', m).value;
       const grand = items.reduce((s, l) => s + l.qty * l.unit_cost, 0) + (+$('#pu-tax', m).value || 0);
       const paid = ps === 'paid' ? undefined : (ps === 'partial' ? (+$('#pu-paid', m).value || 0) : 0);
-      await api('/purchases', { method: 'POST', body: { supplier_id: +$('#pu-sup', m).value || null, warehouse_id: +$('#pu-wh', m).value,
+      const body = { supplier_id: +$('#pu-sup', m).value || null, warehouse_id: +$('#pu-wh', m).value,
         ref: $('#pu-ref', m).value.trim(), tax: +$('#pu-tax', m).value || 0, items,
-        payment_method_id: +$('#pu-method', m).value || null, ...(paid !== undefined ? { paid_amount: paid } : {}) } });
-      m.remove(); toast(t('تم الاستلام وتحديث المخزون ✅')); route(); } catch (e) { toast(e.message, 'err'); }
+        payment_method_id: +$('#pu-method', m).value || null, ...(paid !== undefined ? { paid_amount: paid } : {}) };
+      await api(editP ? '/purchases/' + editP.id : '/purchases', { method: editP ? 'PUT' : 'POST', body });
+      m.remove(); toast(editP ? t('تم حفظ التعديل ✅') : t('تم الاستلام وتحديث المخزون ✅')); route(); } catch (e) { toast(e.message, 'err'); }
   };
 }
 
@@ -1729,27 +1738,33 @@ ROUTES.expenses = async (view) => {
         ${d.byCat.slice(0, 3).map(c => `<div class="kpi"><div class="lbl">${c.icon || ''} ${esc(c.name_ar || '—')}</div><div class="val">${money(c.total)}</div></div>`).join('')}
       </div>
       <div class="card"><div class="t-wrap"><table><thead><tr><th>${t('تاريخ المصروف')}</th><th>${t('فئة المصروف')}</th><th>${t('قيمة المصروف')}</th><th>${t('ملاحظات')}</th><th>${t('بواسطة')}</th><th></th></tr></thead><tbody>
-        ${d.rows.map(e => `<tr><td>${esc(e.spent_at || dDay(e.created_at))}</td><td>${e.icon || ''} ${esc(e.category || '—')}</td><td class="t-num" style="color:var(--amber)">${money(e.amount)}</td><td>${esc(e.note || '')}</td><td>${esc(e.by_name || '')}</td><td><button class="btn btn-ghost btn-sm" data-del="${e.id}">${t('حذف')}</button></td></tr>`).join('') || `<tr><td colspan="6" class="empty">${t('لا مصروفات')}</td></tr>`}
+        ${d.rows.map(e => `<tr><td>${esc(e.spent_at || dDay(e.created_at))}</td><td>${e.icon || ''} ${esc(e.category || '—')}</td><td class="t-num" style="color:var(--amber)">${money(e.amount)}</td><td>${esc(e.note || '')}</td><td>${esc(e.by_name || '')}</td><td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" data-edit="${e.id}">✏️ ${t('تعديل')}</button> <button class="btn btn-ghost btn-sm" data-del="${e.id}">${t('حذف')}</button></td></tr>`).join('') || `<tr><td colspan="6" class="empty">${t('لا مصروفات')}</td></tr>`}
       </tbody></table></div></div>`;
     $$('#ex-body [data-del]').forEach(b => b.onclick = () => confirmDialog(L('حذف هذا المصروف؟', 'Delete this expense?'), async () => { await api('/expenses/' + b.dataset.del, { method: 'DELETE' }); toast(t('حُذف')); load(); }));
+    $$('#ex-body [data-edit]').forEach(b => b.onclick = () => editExpense(d.rows.find(x => x.id === +b.dataset.edit)));
   };
   $('#ex-from').onchange = load; $('#ex-to').onchange = load;
-  $('#ex-new').onclick = () => {
-    const m = modal(`<h3>💸 ${t('تسجيل مصروف')}</h3>
-      <div class="row"><div class="field"><label>${t('فئة المصروف')}</label><select id="x-cat">${cats.map(c => `<option value="${c.id}">${c.icon || ''} ${esc(c.name_ar)}</option>`).join('')}</select></div>
-        <div class="field"><label>${t('قيمة المصروف')}</label><input id="x-amt" type="number" step="any"></div></div>
-      <div class="row"><div class="field"><label>${t('تاريخ المصروف')}</label><input id="x-date" type="date" value="${todayStr()}"></div>
-        <div class="field"><label>${t('يُصرف من (الخزنة)')}</label><select id="x-method"><option value="">${t('— بدون خصم من خزنة —')}</option>${META.payment_methods.map(p => `<option value="${p.id}">${p.icon || ''} ${esc(p.name_ar)}</option>`).join('')}</select></div></div>
-      <div class="field"><label>${t('ملاحظات')}</label><input id="x-note"></div>
+  // مودال موحّد: إضافة (e=null) أو تعديل مصروف موجود — التعديل يصحّح الخزينة تلقائياً في السيرفر
+  const editExpense = (e) => {
+    const m = modal(`<h3>💸 ${e ? t('تعديل مصروف') : t('تسجيل مصروف')}</h3>
+      <div class="row"><div class="field"><label>${t('فئة المصروف')}</label><select id="x-cat">${cats.map(c => `<option value="${c.id}" ${e && e.category_id === c.id ? 'selected' : ''}>${c.icon || ''} ${esc(c.name_ar)}</option>`).join('')}</select></div>
+        <div class="field"><label>${t('قيمة المصروف')}</label><input id="x-amt" type="number" step="any" value="${e ? e.amount : ''}"></div></div>
+      <div class="row"><div class="field"><label>${t('تاريخ المصروف')}</label><input id="x-date" type="date" value="${e ? (e.spent_at || todayStr()) : todayStr()}"></div>
+        <div class="field"><label>${t('يُصرف من (الخزنة)')}</label><select id="x-method"><option value="">${t('— بدون خصم من خزنة —')}</option>${META.payment_methods.map(p => `<option value="${p.id}" ${e && e.method_id === p.id ? 'selected' : ''}>${p.icon || ''} ${esc(p.name_ar)}</option>`).join('')}</select></div></div>
+      <div class="field"><label>${t('ملاحظات')}</label><input id="x-note" value="${e ? esc(e.note || '') : ''}"></div>
       <div class="err" id="x-e"></div>
       <div class="modal-actions"><button class="btn btn-ghost" id="x-x">${t('إلغاء')}</button><button class="btn btn-primary" id="x-save">${t('حفظ')}</button></div>`);
     $('#x-x', m).onclick = () => m.remove();
     $('#x-save', m).onclick = async () => {
       const body = { category_id: +$('#x-cat', m).value, amount: +$('#x-amt', m).value || 0, spent_at: $('#x-date', m).value, note: $('#x-note', m).value.trim(), method_id: +$('#x-method', m).value || null };
       if (!(body.amount > 0)) return $('#x-e', m).textContent = L('أدخل قيمة المصروف', 'Enter amount');
-      try { await api('/expenses', { method: 'POST', body }); m.remove(); toast(t('تم الحفظ ✅')); load(); } catch (e) { $('#x-e', m).textContent = e.message; }
+      try {
+        await api(e ? '/expenses/' + e.id : '/expenses', { method: e ? 'PUT' : 'POST', body });
+        m.remove(); toast(t('تم الحفظ ✅')); load();
+      } catch (err) { $('#x-e', m).textContent = err.message; }
     };
   };
+  $('#ex-new').onclick = () => editExpense(null);
   load();
 };
 

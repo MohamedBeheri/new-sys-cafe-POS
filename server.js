@@ -305,6 +305,28 @@ app.post('/api/expenses', auth, admin, (req, res) => {
   });
   res.json({ id });
 });
+// تعديل مصروف: يعكس حركة الخزينة القديمة ويسجّل الجديدة (عند تغيّر القيمة أو الخزنة فقط)
+app.put('/api/expenses/:id', auth, admin, (req, res) => {
+  const e = get('SELECT * FROM expenses WHERE id=?', req.params.id);
+  if (!e) return res.status(404).json({ error: 'غير موجود' });
+  const b = req.body || {};
+  const amount = b.amount !== undefined ? +b.amount : e.amount;
+  if (!(amount > 0)) return res.status(400).json({ error: 'أدخل قيمة المصروف' });
+  const methodId = b.method_id !== undefined ? (b.method_id || null) : e.method_id;
+  const shift = openShiftOf(req.user.id);
+  tx(() => {
+    if ((e.method_id || null) !== (methodId || null) || +amount !== +e.amount) {
+      if (e.method_id) moneyMove({ method_id: e.method_id, amount: +e.amount, ref_type: 'adjust', ref_id: e.id,
+        note: 'تعديل مصروف — استرداد القيمة القديمة', user_id: req.user.id, shift_id: shift?.id || null });
+      if (methodId) moneyMove({ method_id: methodId, amount: -amount, ref_type: 'expense', ref_id: e.id,
+        note: 'مصروف (معدّل): ' + ((b.note ?? e.note) || ''), user_id: req.user.id, shift_id: shift?.id || null });
+    }
+    run('UPDATE expenses SET category_id=?, amount=?, note=?, spent_at=?, method_id=? WHERE id=?',
+      b.category_id ?? e.category_id, amount, b.note ?? e.note, b.spent_at ?? e.spent_at, methodId, e.id);
+  });
+  logAudit(req.user.id, 'expense', e.id, 'edit', { from: e.amount, to: amount });
+  res.json({ ok: true });
+});
 app.delete('/api/expenses/:id', auth, admin, (req, res) => {
   const e = get('SELECT * FROM expenses WHERE id=?', req.params.id);
   if (!e) return res.status(404).json({ error: 'غير موجود' });
@@ -944,6 +966,71 @@ app.post('/api/purchases', auth, admin, (req, res) => {
   });
   logAudit(req.user.id, 'purchase', out, 'create');
   res.json({ id: out });
+});
+
+// تعديل فاتورة شراء: يعكس البنود القديمة (مخزون + متوسط تكلفة + خزينة) ثم يطبّق الجديدة
+// ممنوع تعديل فاتورة عليها دفعات سداد لاحقة — تُحذف الدفعات أولاً أو تُترك الفاتورة كما هي
+app.put('/api/purchases/:id', auth, admin, (req, res) => {
+  const pu = get('SELECT * FROM purchases WHERE id=?', req.params.id);
+  if (!pu) return res.status(404).json({ error: 'غير موجود' });
+  const extraPays = get("SELECT COUNT(*) c FROM invoice_payments WHERE kind='purchase' AND invoice_id=?", pu.id).c;
+  if (extraPays) return res.status(400).json({ error: 'الفاتورة عليها دفعات سداد لاحقة — لا يمكن تعديلها' });
+  const b = req.body || {};
+  const items = (b.items || []).filter(i => i.material_id && +i.qty > 0);
+  if (!items.length) return res.status(400).json({ error: 'أضف بنداً واحداً على الأقل' });
+  const tax = +b.tax || 0;
+  const subtotal = items.reduce((s, i) => s + (+i.qty) * (+i.unit_cost), 0);
+  const total = +(subtotal + tax).toFixed(2);
+  const paidAmount = b.paid_amount !== undefined ? Math.min(+b.paid_amount || 0, total) : total;
+  const payStatus = paidAmount >= total ? 'paid' : (paidAmount > 0 ? 'partial' : 'credit');
+  const t = nowISO();
+  const shift = openShiftOf(req.user.id);
+  const touched = new Set();
+  tx(() => {
+    // 1) عكس البنود القديمة من المخزون بنفس تكلفة الاستلام المسجلة
+    for (const oi of all('SELECT * FROM purchase_items WHERE purchase_id=?', pu.id)) {
+      const mat = get('SELECT qty,avg_cost,warehouse_id FROM raw_materials WHERE id=?', oi.material_id);
+      if (!mat) continue;
+      const newQty = +(mat.qty - oi.qty).toFixed(4);
+      const remVal = mat.qty * mat.avg_cost - oi.qty * oi.unit_cost;
+      const newAvg = newQty > 0 ? Math.max(0, +(remVal / newQty).toFixed(4)) : mat.avg_cost;
+      run('UPDATE raw_materials SET qty=?, avg_cost=? WHERE id=?', newQty, newAvg, oi.material_id);
+      run(`INSERT INTO inventory_transactions(material_id,warehouse_id,type,qty,unit_cost,balance,ref_type,ref_id,note,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)`, oi.material_id, pu.warehouse_id || mat.warehouse_id, 'adjust', -oi.qty, oi.unit_cost, newQty, 'purchase', pu.id, 'تعديل فاتورة شراء — عكس البنود القديمة', t);
+      touched.add(oi.material_id);
+    }
+    run('DELETE FROM purchase_items WHERE purchase_id=?', pu.id);
+    // 2) عكس حركة الخزينة القديمة
+    if (pu.paid_amount > 0 && pu.payment_method_id)
+      moneyMove({ method_id: pu.payment_method_id, amount: +pu.paid_amount, ref_type: 'adjust', ref_id: pu.id,
+        note: `تعديل فاتورة شراء ${pu.ref || '#' + pu.id} — استرداد`, user_id: req.user.id, shift_id: shift?.id || null });
+    // 3) تحديث رأس الفاتورة
+    run(`UPDATE purchases SET ref=?, supplier_id=?, warehouse_id=?, subtotal=?, tax=?, total=?, notes=?, paid_amount=?, payment_status=?, payment_method_id=? WHERE id=?`,
+      b.ref || null, b.supplier_id || null, b.warehouse_id || pu.warehouse_id, +subtotal.toFixed(2), tax, total,
+      b.notes ?? pu.notes, paidAmount, payStatus, b.payment_method_id || null, pu.id);
+    // 4) حركة الخزينة الجديدة
+    if (paidAmount > 0 && b.payment_method_id)
+      moneyMove({ method_id: b.payment_method_id, amount: -paidAmount, ref_type: 'purchase', ref_id: pu.id,
+        note: 'سداد فاتورة شراء (معدّلة)' + (b.ref ? ' ' + b.ref : ''), user_id: req.user.id, shift_id: shift?.id || null });
+    // 5) تطبيق البنود الجديدة — نفس منطق الإنشاء
+    for (const i of items) {
+      const mat = get('SELECT qty,avg_cost,warehouse_id,purchase_factor FROM raw_materials WHERE id=?', i.material_id);
+      const inPurchase = i.unit === 'purchase';
+      const factor = inPurchase ? (+mat.purchase_factor || 1) : 1;
+      const recvQty = +(+i.qty * factor).toFixed(4);
+      const unitCost = +(+i.unit_cost / factor).toFixed(6);
+      const newQty = +(mat.qty + recvQty).toFixed(4);
+      const newAvg = newQty > 0 ? +(((mat.qty * mat.avg_cost) + (recvQty * unitCost)) / newQty).toFixed(4) : unitCost;
+      run('UPDATE raw_materials SET qty=?, avg_cost=? WHERE id=?', newQty, newAvg, i.material_id);
+      run('INSERT INTO purchase_items(purchase_id,material_id,qty,unit_cost) VALUES(?,?,?,?)', pu.id, i.material_id, recvQty, unitCost);
+      run(`INSERT INTO inventory_transactions(material_id,warehouse_id,type,qty,unit_cost,balance,ref_type,ref_id,note,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)`, i.material_id, b.warehouse_id || mat.warehouse_id, 'purchase', recvQty, unitCost, newQty, 'purchase', pu.id, (b.ref || 'فاتورة شراء') + ' (معدّلة)', t);
+      touched.add(i.material_id);
+    }
+    for (const mid of touched) recomputeProductsUsing(mid);
+  });
+  logAudit(req.user.id, 'purchase', pu.id, 'edit', { total, paidAmount });
+  res.json({ ok: true });
 });
 
 // سداد المتبقي من فاتورة شراء آجلة/جزئية
