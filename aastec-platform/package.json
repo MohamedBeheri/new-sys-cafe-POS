@@ -1,0 +1,25 @@
+{
+  "name": "aastec-digital-platform",
+  "version": "1.0.0",
+  "description": "AASTEC Digital Platform — Rally Society ecosystem: governance, community, calendar, elections, learning & AI, incubator and programme management",
+  "type": "module",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node db/seed.js",
+    "reset": "node db/seed.js --reset",
+    "icons": "node scripts/build-icons.mjs",
+    "smoke": "node scripts/smoke-test.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "lucide-static": "^1.56.0"
+  }
+}

@@ -1,0 +1,35 @@
+# ===================================================================
+#  AASTEC Digital Platform — Render Blueprint
+#  Separate from the café POS blueprint at the repository root.
+#  Select this file (aastec-platform/render.yaml) as the Blueprint path.
+# ===================================================================
+services:
+  - type: web
+    name: aastec-digital-platform
+    runtime: node
+    rootDir: aastec-platform
+    plan: starter
+    region: frankfurt
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DB_PATH
+        value: /data/aastec.db
+      - key: UPLOAD_DIR
+        value: /data/uploads
+      - key: SEED_DEMO
+        value: "0"            # set to "1" for a demo/pilot environment
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false            # optional — enables Claude for the AI features
+    disk:
+      name: aastec-data
+      mountPath: /data
+      sizeGB: 1

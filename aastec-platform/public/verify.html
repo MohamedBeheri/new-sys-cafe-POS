@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Certificate Verification — AASTEC</title>
+<meta name="theme-color" content="#102D5A">
+<link rel="icon" type="image/png" href="/img/emblem.png">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/app.css?v=1.0.0">
+</head>
+<body style="background:var(--surface)">
+<div style="background:var(--navy);border-bottom:3px solid var(--gold)"><div class="row" style="max-width:760px;margin:0 auto;padding:14px 20px"><a href="/" class="row" style="text-decoration:none"><img src="/img/emblem-white.png" alt="AAST" style="width:42px"><span class="wordmark"><span class="wm"><span class="a">AAST</span><span class="e">EC</span></span><span class="sub" style="color:#fff">Entrepreneurship Center</span></span></a></div></div>
+<main style="max-width:760px;margin:40px auto;padding:0 20px"><div class="card" id="box" style="padding:30px"><div class="spinner"></div></div>
+<p class="center small muted mt-l">Certificates issued by the AAST Entrepreneurship Center can be verified at this address using the code printed on the certificate.</p></main>
+<script>
+const esc = (s) => (s ?? '').toString().replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const code = decodeURIComponent(location.pathname.split('/').pop() || '');
+fetch('/api/public/verify/' + encodeURIComponent(code)).then(r => r.json()).then(d => {
+  const box = document.getElementById('box');
+  if (!d.certificate) { box.innerHTML = `<div class="center"><h2 style="color:var(--red)">Certificate not found</h2><p class="muted mt">No certificate matches the code <b>${esc(code)}</b>. Please check the code and try again.</p></div>`; return; }
+  const c = d.certificate;
+  box.innerHTML = `<div class="row between wrap"><div><span class="chip ${d.valid ? 'green' : 'red'}" style="font-size:13px">${d.valid ? '✓ Valid certificate' : 'Revoked certificate'}</span><h2 class="mt" style="font-size:26px">${esc(c.title)}</h2><p class="muted">Certificate of Completion</p></div><img src="/img/logo-full.png" alt="AASTEC" style="width:96px"></div>
+    <div class="grid g2 mt-l">${[['Awarded to', c.full_name], ['Issued', new Date(c.issued_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })], ['Category', c.category || '—'], ['Learning hours', c.hours || '—'], ['Rally Society', c.society || '—'], ['Verification code', c.code]].map(([l, v]) => `<div><div class="xs muted">${l}</div><div class="strong">${esc(v)}</div></div>`).join('')}</div>
+    <p class="small muted mt-l">Issued by the AAST Entrepreneurship Center (AASTEC) through the AASTEC Digital Platform.</p>`;
+}).catch(() => { document.getElementById('box').innerHTML = '<p class="center muted">Verification service unavailable. Please try again later.</p>'; });
+</script>
+</body>
+</html>
